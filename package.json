@@ -1,0 +1,28 @@
+{
+  "name": "sigca-centro-armonia",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0 --port 3000",
+    "build": "vue-tsc --noEmit && vite build",
+    "preview": "vite preview --host 0.0.0.0 --port 3000",
+    "lint": "vue-tsc --noEmit"
+  },
+  "dependencies": {
+    "clsx": "^2.1.1",
+    "lucide-vue-next": "^1.0.0",
+    "pinia": "^3.0.1",
+    "tailwind-merge": "^3.0.2",
+    "vue": "^3.5.13",
+    "vue-router": "^4.5.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.0.0",
+    "@vitejs/plugin-vue": "^5.2.1",
+    "tailwindcss": "^4.0.0",
+    "typescript": "^5.7.3",
+    "vite": "^6.0.7",
+    "vue-tsc": "^2.2.0"
+  }
+}
