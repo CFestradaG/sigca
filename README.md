@@ -3,6 +3,8 @@
 
 Aplicación web empresarial desarrollada para **Centro Armonía**, centro especializado en psicología infantil, estimulación auditivo-verbal y salud mental familiar en Ciudad de Guatemala (Sedes Zona 10 Sixtino II y Zona 14 Europlaza).
 
+> Mapa de arquitectura, módulos, estado actual y prioridades: [docs/MAPA_DEL_PROYECTO.md](docs/MAPA_DEL_PROYECTO.md).
+
 ---
 
 ## 🛠️ Tecnologías Principales
@@ -60,3 +62,58 @@ npm run dev
 # Compilar para producción
 npm run build
 ```
+
+## MongoDB local con Docker
+
+Docker Compose usa la imagen oficial de MongoDB y conserva los datos en el volumen `mongo_data`.
+Las credenciales del ejemplo son solo para desarrollo local; no expongas MongoDB a una red pública.
+En el primer arranque, MongoDB crea el usuario con esos valores. Cambiar `.env` después no rota
+la contraseña dentro de un volumen ya inicializado; cámbiala también en MongoDB para mantener
+el healthcheck y las conexiones funcionando. No uses `docker compose down -v` si deseas conservar
+los datos del volumen.
+
+```bash
+cp .env.example .env
+docker compose up -d mongo
+docker compose ps
+docker compose logs mongo
+```
+
+Para detener MongoDB sin borrar sus datos:
+
+```bash
+docker compose down
+```
+
+La API Express/Mongoose se construye junto con MongoDB y queda disponible localmente en
+`http://localhost:4000/api/health`. Compose espera a que MongoDB esté saludable antes de iniciar la API.
+
+```bash
+docker compose up -d --build --wait
+docker compose ps
+curl http://localhost:4000/api/health
+```
+
+En entornos de desarrollo donde Docker no permita tráfico entre contenedores, inicia solo MongoDB
+con Compose y ejecuta la API desde el workspace; esta carga las variables de `.env` desde la raíz:
+
+```bash
+docker compose up -d --wait mongo
+npm run dev --prefix backend
+```
+
+### Usuarios y autenticación
+
+Antes de iniciar la API, agrega a tu `.env` local un `JWT_SECRET` generado con
+`openssl rand -hex 32`. Mantén la clave fuera de Git. Configura temporalmente
+`BOOTSTRAP_ADMIN_NAME`, `BOOTSTRAP_ADMIN_EMAIL` y una `BOOTSTRAP_ADMIN_PASSWORD` de al menos
+12 caracteres; luego crea el primer administrador con:
+
+```bash
+npm run seed:admin --prefix backend
+```
+
+El bootstrap no reemplaza usuarios existentes. Retira `BOOTSTRAP_ADMIN_PASSWORD` de `.env` después
+de usarlo. La API ofrece `POST /api/auth/login`, `GET /api/auth/me` y gestión administrativa en
+`/api/usuarios`; las rutas de usuarios requieren rol `ADMIN`. Los tokens Bearer duran una hora por
+defecto. Roles internos: `ADMIN` (administrador), `RECEPCION` y `PROFESIONAL`.
