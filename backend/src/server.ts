@@ -3,6 +3,7 @@ import express, { type ErrorRequestHandler } from 'express';
 import mongoose from 'mongoose';
 import { authRouter } from './modules/auth/auth.routes.js';
 import { usersRouter } from './modules/users/users.routes.js';
+import { servicesRouter } from './modules/services/services.routes.js';
 import { connectDatabase } from './config/database.js';
 
 dotenv.config({ path: process.env.DOTENV_CONFIG_PATH ?? '../.env' });
@@ -23,6 +24,7 @@ app.get('/api/health', (_request, response) => {
 
 app.use('/api/auth', authRouter);
 app.use('/api/usuarios', usersRouter);
+app.use('/api/servicios', servicesRouter);
 
 const errorHandler: ErrorRequestHandler = (error, _request, response, _next) => {
   const statusCode =

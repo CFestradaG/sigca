@@ -12,6 +12,7 @@ Aplicación web empresarial desarrollada para **Centro Armonía**, centro especi
 - **Frontend Framework**: [Vue 3](https://vuejs.org/) (Composition API con `<script setup lang="ts">`)
 - **Enrutamiento**: [Vue Router 4](https://router.vuejs.org/) con rutas completas para portal público y sistema administrativo
 - **Gestión de Estado**: [Pinia 3](https://pinia.vuejs.org/) con persistencia reactiva en `localStorage`
+- **Backend**: Node.js, Express y MongoDB con Mongoose (API inicial de autenticación, usuarios y servicios)
 - **Estilos**: [Tailwind CSS v4](https://tailwindcss.com/) con paleta y tokens clínicos serenos
 - **Bundler y Servidor**: [Vite 6](https://vite.dev/) en puerto 3000
 
@@ -28,7 +29,7 @@ Aplicación web empresarial desarrollada para **Centro Armonía**, centro especi
 - **Horarios y Contacto**: Información de sedes, PBX, WhatsApp y formulario directo de consultas.
 - **Solicitud de Cita en Línea**: Formulario de recepción con generación de código de seguimiento y derivación a la bandeja de recepción.
 
-### 2. Sistema Administrativo Integral (RBAC)
+### 2. Sistema Administrativo (frontend de demostración + API en desarrollo)
 - **Control de Roles**:
   - `ADMIN`: Acceso irrestricto a todos los módulos y configuración institucional.
   - `RECEPCION`: Pacientes, tutores, citas, bandeja de solicitudes, cobros y caja diaria.
@@ -41,8 +42,9 @@ Aplicación web empresarial desarrollada para **Centro Armonía**, centro especi
   - Conversión de solicitudes públicas en citas confirmadas con asignación de terapeuta, horario y sede.
 - **Programación de Citas y Calendario Clínico**:
   - Calendario mensual interactivo con filtros por fecha, estado y profesional.
+- **Servicios**: La pantalla actual todavía usa el store local. La API ya permite consultar servicios activos públicamente y administrar altas, cambios de precio y estado con rol `ADMIN`.
 - **Gestión de Pagos y Comprobantes Internos**:
-  - Pagos completos y parciales, registro de método de pago (Efectivo, Tarjeta, Transferencia, Cheque) y generación de comprobante imprimible con correlativo interno y SAT-FEL.
+  - La interfaz de pagos es una demostración local. La consigna requiere efectivo, tarjeta y transferencia, comprobante interno y no requiere integración de facturación electrónica.
 - **Caja Diaria**:
   - Apertura con fondo inicial, registro de ingresos/egresos y arqueo para cierre.
 - **Materiales Educativos y Contenido Web**:
@@ -117,3 +119,15 @@ El bootstrap no reemplaza usuarios existentes. Retira `BOOTSTRAP_ADMIN_PASSWORD`
 de usarlo. La API ofrece `POST /api/auth/login`, `GET /api/auth/me` y gestión administrativa en
 `/api/usuarios`; las rutas de usuarios requieren rol `ADMIN`. Los tokens Bearer duran una hora por
 defecto. Roles internos: `ADMIN` (administrador), `RECEPCION` y `PROFESIONAL`.
+
+### API de servicios
+
+- `GET /api/servicios`: catálogo público de servicios activos; acepta el filtro `?categoria=`.
+- `GET /api/servicios/admin`: listado completo, requiere `ADMIN`.
+- `POST /api/servicios`: crea servicio, requiere `ADMIN`.
+- `PUT /api/servicios/:id`: actualiza parcialmente campos válidos, requiere `ADMIN`.
+- `PATCH /api/servicios/:id/estado`: activa o desactiva el servicio, requiere `ADMIN`.
+
+Los precios se almacenan como centavos enteros (`precioCentavos`) y se exponen también como `precioQ`.
+La interfaz Vue todavía no consume estos endpoints; el catálogo y la administración existentes siguen
+leyendo el store local hasta completar su integración.
