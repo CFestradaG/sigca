@@ -5,6 +5,10 @@ import { useAppStore } from '../../stores/appStore';
 const store = useAppStore();
 const route = useRoute();
 
+const emit = defineEmits<{
+  (e: 'openLogin'): void;
+}>();
+
 const navItems = [
   { path: '/inicio', label: 'Inicio' },
   { path: '/servicios', label: 'Servicios y Tratamientos' },
@@ -85,6 +89,16 @@ const navItems = [
           <span class="material-symbols-outlined text-lg">calendar_today</span>
           <span>Agendar Cita (Q)</span>
         </router-link>
+
+        <!-- Iniciar Sesión modal trigger -->
+        <button
+          @click="emit('openLogin')"
+          type="button"
+          class="inline-flex items-center gap-1.5 bg-white hover:bg-[#ece8df] text-[#00685d] text-sm font-semibold px-3 py-2.5 rounded-xl transition-all cursor-pointer border border-[#bcc9c6]"
+        >
+          <span class="material-symbols-outlined text-lg">login</span>
+          <span class="hidden md:inline">Iniciar Sesión</span>
+        </button>
 
         <!-- Quick link to Admin Portal -->
         <router-link

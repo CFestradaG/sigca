@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue';
-import { useRoute } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import { useAppStore } from '../../stores/appStore';
 import { UserRole } from '../../types';
 
@@ -10,10 +10,12 @@ defineProps<{
 
 const emit = defineEmits<{
   (e: 'close'): void;
+  (e: 'openLogin'): void;
 }>();
 
 const store = useAppStore();
 const route = useRoute();
+const router = useRouter();
 
 const currentRole = computed<UserRole>(() => store.currentUser?.role || 'ADMIN');
 
@@ -21,6 +23,12 @@ const handleRoleChange = (event: Event) => {
   const role = (event.target as HTMLSelectElement).value as UserRole;
   const userForRole = store.users.find((u) => u.role === role) || store.users[0];
   store.setCurrentUser(userForRole);
+
+  // If the current route is not permitted for the new role, redirect to dashboard
+  const currentNav = navItems.find((item) => item.path === route.path);
+  if (currentNav && !currentNav.roles.includes(role)) {
+    router.push('/admin/dashboard');
+  }
 };
 
 const navItems = [

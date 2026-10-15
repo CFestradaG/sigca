@@ -3,6 +3,7 @@ import { useAppStore } from '../../stores/appStore';
 
 const emit = defineEmits<{
   (e: 'toggleSidebar'): void;
+  (e: 'openLogin'): void;
 }>();
 
 const store = useAppStore();
@@ -63,21 +64,27 @@ const todayFormatted = new Date().toLocaleDateString('es-GT', {
       <div class="hidden md:block h-7 w-px bg-[#bcc9c6]/40"></div>
 
       <!-- User Card -->
-      <div class="flex items-center gap-2.5">
+      <button
+        @click="emit('openLogin')"
+        type="button"
+        title="Cambiar usuario / autenticar con JWT"
+        class="flex items-center gap-2.5 p-1 rounded-2xl hover:bg-[#f2ede4] transition-colors cursor-pointer text-left"
+      >
         <img
           :src="store.currentUser?.avatarUrl || 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&w=256&q=80'"
           :alt="store.currentUser?.name"
           class="w-9 h-9 rounded-full object-cover ring-2 ring-[#00685d]/20"
         />
         <div class="hidden xl:flex flex-col text-left">
-          <span class="text-xs font-bold text-[#1d1c16] leading-tight">
-            {{ store.currentUser?.name }}
+          <span class="text-xs font-bold text-[#1d1c16] leading-tight flex items-center gap-1">
+            <span>{{ store.currentUser?.name }}</span>
+            <span class="material-symbols-outlined text-[13px] text-[#6d7a77]">swap_horiz</span>
           </span>
           <span class="text-[11px] text-[#00685d] font-semibold leading-none">
             {{ store.currentUser?.role === 'ADMIN' ? 'Administrador General' : store.currentUser?.role === 'RECEPCION' ? 'Recepción y Caja' : 'Terapeuta Clínico' }}
           </span>
         </div>
-      </div>
+      </button>
 
       <!-- Logout -->
       <router-link

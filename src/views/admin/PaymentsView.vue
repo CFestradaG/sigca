@@ -38,10 +38,10 @@ const handleOpenAdd = () => {
   showAddPaymentModal.value = true;
 };
 
-const handleSubmit = () => {
+const handleSubmit = async () => {
   if (!formData.value.pacienteId || formData.value.montoQ <= 0) return;
 
-  const created = store.registerPayment({
+  const created = await store.registerPayment({
     pacienteId: formData.value.pacienteId,
     montoQ: Number(formData.value.montoQ),
     metodoPago: formData.value.metodoPago,

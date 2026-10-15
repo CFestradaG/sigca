@@ -1,4 +1,5 @@
 import { createRouter, createWebHistory, RouteRecordRaw } from 'vue-router';
+import { useAppStore } from '../stores/appStore';
 
 // Public Views
 import HomeView from '../views/public/HomeView.vue';
@@ -34,21 +35,86 @@ const routes: RouteRecordRaw[] = [
   { path: '/horarios-contacto', name: 'ScheduleContact', component: ScheduleContactView },
   { path: '/agendar-cita', name: 'BookingRequest', component: BookingRequestView },
 
-  // Admin Routes
+  // Admin Routes with RBAC guards
   { path: '/admin', redirect: '/admin/dashboard' },
-  { path: '/admin/dashboard', name: 'AdminDashboard', component: DashboardView },
-  { path: '/admin/pacientes', name: 'AdminPatients', component: PatientsView },
-  { path: '/admin/responsables', name: 'AdminGuardians', component: GuardiansView },
-  { path: '/admin/servicios', name: 'AdminServices', component: ServicesAdminView },
-  { path: '/admin/solicitudes', name: 'AdminRequests', component: RequestsView },
-  { path: '/admin/citas', name: 'AdminAppointments', component: AppointmentsView },
-  { path: '/admin/calendario', name: 'AdminCalendar', component: CalendarView },
-  { path: '/admin/materiales', name: 'AdminMaterials', component: MaterialsView },
-  { path: '/admin/pagos', name: 'AdminPayments', component: PaymentsView },
-  { path: '/admin/caja-diaria', name: 'AdminCashRegister', component: CashRegisterView },
-  { path: '/admin/contenido', name: 'AdminContent', component: InstitutionalContentView },
-  { path: '/admin/usuarios', name: 'AdminUsers', component: UsersView },
-  { path: '/admin/mensajes', name: 'AdminMessages', component: MessagesView },
+  {
+    path: '/admin/dashboard',
+    name: 'AdminDashboard',
+    component: DashboardView,
+    meta: { requiresAuth: true, roles: ['ADMIN', 'RECEPCION', 'PROFESIONAL'] },
+  },
+  {
+    path: '/admin/pacientes',
+    name: 'AdminPatients',
+    component: PatientsView,
+    meta: { requiresAuth: true, roles: ['ADMIN', 'RECEPCION', 'PROFESIONAL'] },
+  },
+  {
+    path: '/admin/responsables',
+    name: 'AdminGuardians',
+    component: GuardiansView,
+    meta: { requiresAuth: true, roles: ['ADMIN', 'RECEPCION'] },
+  },
+  {
+    path: '/admin/servicios',
+    name: 'AdminServices',
+    component: ServicesAdminView,
+    meta: { requiresAuth: true, roles: ['ADMIN', 'RECEPCION'] },
+  },
+  {
+    path: '/admin/solicitudes',
+    name: 'AdminRequests',
+    component: RequestsView,
+    meta: { requiresAuth: true, roles: ['ADMIN', 'RECEPCION'] },
+  },
+  {
+    path: '/admin/citas',
+    name: 'AdminAppointments',
+    component: AppointmentsView,
+    meta: { requiresAuth: true, roles: ['ADMIN', 'RECEPCION', 'PROFESIONAL'] },
+  },
+  {
+    path: '/admin/calendario',
+    name: 'AdminCalendar',
+    component: CalendarView,
+    meta: { requiresAuth: true, roles: ['ADMIN', 'RECEPCION', 'PROFESIONAL'] },
+  },
+  {
+    path: '/admin/materiales',
+    name: 'AdminMaterials',
+    component: MaterialsView,
+    meta: { requiresAuth: true, roles: ['ADMIN', 'RECEPCION', 'PROFESIONAL'] },
+  },
+  {
+    path: '/admin/pagos',
+    name: 'AdminPayments',
+    component: PaymentsView,
+    meta: { requiresAuth: true, roles: ['ADMIN', 'RECEPCION'] },
+  },
+  {
+    path: '/admin/caja-diaria',
+    name: 'AdminCashRegister',
+    component: CashRegisterView,
+    meta: { requiresAuth: true, roles: ['ADMIN', 'RECEPCION'] },
+  },
+  {
+    path: '/admin/contenido',
+    name: 'AdminContent',
+    component: InstitutionalContentView,
+    meta: { requiresAuth: true, roles: ['ADMIN'] },
+  },
+  {
+    path: '/admin/usuarios',
+    name: 'AdminUsers',
+    component: UsersView,
+    meta: { requiresAuth: true, roles: ['ADMIN'] },
+  },
+  {
+    path: '/admin/mensajes',
+    name: 'AdminMessages',
+    component: MessagesView,
+    meta: { requiresAuth: true, roles: ['ADMIN'] },
+  },
 ];
 
 export const router = createRouter({
@@ -57,4 +123,28 @@ export const router = createRouter({
   scrollBehavior() {
     return { top: 0 };
   },
+});
+
+// Interface Navigation Guards (RN-10, RF-02)
+router.beforeEach((to, _from, next) => {
+  const store = useAppStore();
+
+  if (to.meta.requiresAuth) {
+    if (!store.currentUser) {
+      // User is not logged in
+      return next({ path: '/inicio', query: { loginRequired: 'true' } });
+    }
+
+    if (!store.currentUser.active) {
+      return next({ path: '/inicio', query: { userInactive: 'true' } });
+    }
+
+    const allowedRoles = (to.meta.roles as string[]) || [];
+    if (allowedRoles.length > 0 && !allowedRoles.includes(store.currentUser.role)) {
+      console.warn(`[Guard] Rol ${store.currentUser.role} no tiene acceso a ${to.path}. Redirigiendo a Dashboard.`);
+      return next({ path: '/admin/dashboard', query: { accessDenied: 'true' } });
+    }
+  }
+
+  next();
 });

@@ -1,133 +1,175 @@
 # SIGCA — Centro Armonía
-### Sistema Integral de Gestión de Citas y Atención (Vue.js + Pinia + Vue Router)
+### Sistema Integral de Gestión de Citas y Atención Clínica
 
-Aplicación web empresarial desarrollada para **Centro Armonía**, centro especializado en psicología infantil, estimulación auditivo-verbal y salud mental familiar en Ciudad de Guatemala (Sedes Zona 10 Sixtino II y Zona 14 Europlaza).
-
-> Mapa de arquitectura, módulos, estado actual y prioridades: [docs/MAPA_DEL_PROYECTO.md](docs/MAPA_DEL_PROYECTO.md).
+> **Centro Armonía**: Especialistas en Psicología Infantil, Neurodesarrollo y Estimulación Auditivo-Verbal (EAV) en Ciudad de Guatemala.
 
 ---
 
-## 🛠️ Tecnologías Principales
+## 👥 Integrantes del Equipo y Distribución de Responsabilidades (Sección 13)
 
-- **Frontend Framework**: [Vue 3](https://vuejs.org/) (Composition API con `<script setup lang="ts">`)
-- **Enrutamiento**: [Vue Router 4](https://router.vuejs.org/) con rutas completas para portal público y sistema administrativo
-- **Gestión de Estado**: [Pinia 3](https://pinia.vuejs.org/) con persistencia reactiva en `localStorage`
-- **Backend**: Node.js, Express y MongoDB con Mongoose (API inicial de autenticación, usuarios y servicios)
-- **Estilos**: [Tailwind CSS v4](https://tailwindcss.com/) con paleta y tokens clínicos serenos
-- **Bundler y Servidor**: [Vite 6](https://vite.dev/) en puerto 3000
-
----
-
-## 🏛️ Arquitectura del Sistema
-
-### 1. Portal Público
-- **Inicio**: Hero cálido con carrusel clínico, sedes y llamadas a la acción directas.
-- **Servicios y Tratamientos**: Catálogo con precios en Quetzales (Q), duración estimada y categorías (Psicología Infantil, Terapia de Lenguaje, Estimulación Auditivo-Verbal).
-- **Misión y Visión**: Filosofía institucional, valores y enfoque integral centrado en la familia.
-- **Contenido Educativo**: Artículos clínicos, guías de estimulación y recursos descargables.
-- **Corporativo**: Evaluaciones para colegios, talleres para docentes y programas para empresas.
-- **Horarios y Contacto**: Información de sedes, PBX, WhatsApp y formulario directo de consultas.
-- **Solicitud de Cita en Línea**: Formulario de recepción con generación de código de seguimiento y derivación a la bandeja de recepción.
-
-### 2. Sistema Administrativo (frontend de demostración + API en desarrollo)
-- **Control de Roles**:
-  - `ADMIN`: Acceso irrestricto a todos los módulos y configuración institucional.
-  - `RECEPCION`: Pacientes, tutores, citas, bandeja de solicitudes, cobros y caja diaria.
-  - `PROFESIONAL`: Agenda clínica asignada, expediente de sus pacientes y materiales.
-- **Pacientes y Expediente Clínico**:
-  - Cálculo automático de edad en años y meses.
-  - Validación de tutores para menores de edad.
-  - Historial de citas, pagos y saldo pendiente del paciente.
-- **Bandeja de Solicitudes Web**:
-  - Conversión de solicitudes públicas en citas confirmadas con asignación de terapeuta, horario y sede.
-- **Programación de Citas y Calendario Clínico**:
-  - Calendario mensual interactivo con filtros por fecha, estado y profesional.
-- **Servicios**: La pantalla actual todavía usa el store local. La API ya permite consultar servicios activos públicamente y administrar altas, cambios de precio y estado con rol `ADMIN`.
-- **Gestión de Pagos y Comprobantes Internos**:
-  - La interfaz de pagos es una demostración local. La consigna requiere efectivo, tarjeta y transferencia, comprobante interno y no requiere integración de facturación electrónica.
-- **Caja Diaria**:
-  - Apertura con fondo inicial, registro de ingresos/egresos y arqueo para cierre.
-- **Materiales Educativos y Contenido Web**:
-  - Gestión de recursos y actualización de datos institucionales.
+| Integrante | Rol Asignado | Responsabilidades Principales |
+|---|---|---|
+| **Estudiante 1** | Backend & Base de Datos | Modelos Mongoose, API REST, persistencia MongoDB, endpoints de Pacientes, Responsables, Servicios y Contenido. |
+| **Estudiante 2** | Frontend & Integración | Interfaces Vue 3, Vue Router, Pinia, integración con API REST, formularios reactivos, portal público y calendario. |
+| **Estudiante 3** | Seguridad & Control Financiero | Autenticación JWT, RBAC, gestión de citas (RN-01 a RN-07), pagos, saldos, arqueo de caja diaria y pruebas automatizadas. |
 
 ---
 
-## 🚀 Ejecución del Proyecto
+## 🛠️ Tecnologías Utilizadas
 
-```bash
-# Instalar dependencias
-npm install
+- **Frontend**: [Vue 3](https://vuejs.org/) (Composition API `<script setup lang="ts">`), [Vue Router 4](https://router.vuejs.org/) con Navigation Guards por roles, [Pinia](https://pinia.vuejs.org/).
+- **Backend**: [Node.js](https://nodejs.org/), [Express 5](https://expressjs.com/), [TypeScript](https://www.typescriptlang.org/).
+- **Base de Datos**: [MongoDB 6](https://www.mongodb.com/) con modelado [Mongoose](https://mongoosejs.com/).
+- **Seguridad**: JSON Web Tokens ([jsonwebtoken](https://github.com/auth0/node-jsonwebtoken)), Hashing con [bcryptjs](https://github.com/dcodeIO/bcrypt.js).
+- **Estilos**: [Tailwind CSS v4](https://tailwindcss.com/) y fuentes de Google Fonts (Inter, Nunito Sans, Material Symbols).
+- **Contenedores**: [Docker](https://www.docker.com/) y Docker Compose con red interna y healthcheck.
+- **Pruebas y API**: Suite de pruebas automatizadas en TypeScript y colección exportada de Postman.
 
-# Iniciar servidor de desarrollo (puerto 3000)
-npm run dev
+---
 
-# Compilar para producción
-npm run build
-```
+## 🔐 Credenciales de Demostración (Sección 11)
 
-## MongoDB local con Docker
+| Rol | Correo Electrónico | Contraseña | Capacidades y Permisos |
+|---|---|---|---|
+| **ADMINISTRADOR** | `smorales@centroarmonia.com.gt` | `Admin123!` | Control total: usuarios, contenido, servicios, pacientes, citas, pagos, todas las cajas y reportes. |
+| **RECEPCIONISTA 1** | `recepcion@centroarmonia.com.gt` | `Recep123!` | Registro de pacientes, tutores, citas, cobros, comprobantes y apertura/cierre de su propia caja. |
+| **RECEPCIONISTA 2** | `recepcion2@centroarmonia.com.gt` | `Recep123!` | Cobros en caja alterna y programación de citas. |
+| **PROFESIONAL (EAV)** | `acastillo@centroarmonia.com.gt` | `Profe123!` | Consulta de su agenda personal, expediente básico de pacientes, marcar citas completadas y asignar materiales. |
+| **PROFESIONAL (Psicología)** | `evalencia@centroarmonia.com.gt` | `Profe123!` | Agenda de psicología infantil y neurodesarrollo. |
+| **PROFESIONAL (Lenguaje)**| `mramirez@centroarmonia.com.gt` | `Profe123!` | Agenda de terapia del lenguaje y articulación. |
 
-Docker Compose usa la imagen oficial de MongoDB y conserva los datos en el volumen `mongo_data`.
-Las credenciales del ejemplo son solo para desarrollo local; no expongas MongoDB a una red pública.
-En el primer arranque, MongoDB crea el usuario con esos valores. Cambiar `.env` después no rota
-la contraseña dentro de un volumen ya inicializado; cámbiala también en MongoDB para mantener
-el healthcheck y las conexiones funcionando. No uses `docker compose down -v` si deseas conservar
-los datos del volumen.
+---
 
+## 🚀 Instrucciones de Instalación y Ejecución
+
+### 1. Requisitos Previos
+- Node.js versión 18 o superior.
+- npm versión 9 o superior.
+- MongoDB instalado localmente (o Docker para ejecutar el contenedor de base de datos).
+
+### 2. Variables de Entorno
+Copie el archivo de ejemplo:
 ```bash
 cp .env.example .env
-docker compose up -d mongo
-docker compose ps
-docker compose logs mongo
+```
+Contenido por defecto:
+```env
+PORT=3000
+NODE_ENV=development
+MONGODB_URI=mongodb://127.0.0.1:27017/sigca_armonia
+JWT_SECRET=sigca_centro_armonia_secret_key_2026_udg
 ```
 
-Para detener MongoDB sin borrar sus datos:
+### 3. Instalación de Dependencias
+```bash
+npm install
+```
+
+### 4. Carga de Datos de Prueba (Seed Script - Sección 11)
+El script siembra automáticamente las 13 colecciones requeridas (1 Admin, 2 Recepcionistas, 3 Profesionales, 10 Pacientes, 5 Responsables, 5 Servicios, 15 Citas, 5 Materiales, 5 Solicitudes, 10 Pagos, 3 Cajas abiertas y cerradas, Horarios y Mensajes):
+```bash
+npm run seed
+```
+
+### 5. Ejecución del Servidor Integrado (Frontend + API REST)
+```bash
+npm run dev
+```
+La aplicación estará disponible en `http://localhost:3000`.
+
+### 6. Ejecución de Pruebas Automatizadas de Reglas de Negocio
+```bash
+npm test
+```
+Ejecuta la suite de pruebas unitarias y de integración que valida el cumplimiento estricto de las reglas RN-01 a RN-30 (traslapes, menores sin responsable, horarios, cálculo de saldo, estado financiero, no eliminación física, arqueo de caja y diferencias).
+
+---
+
+## 🐳 Despliegue con Docker y Docker Compose
+
+Para levantar tanto el servicio de MongoDB como la aplicación compilada con un solo comando:
 
 ```bash
-docker compose down
+# Construir imágenes y levantar contenedores en segundo plano
+docker-compose up --build -d
+
+# Ver registros en tiempo real
+docker-compose logs -f
+
+# Detener contenedores
+docker-compose down
 ```
 
-La API Express/Mongoose se construye junto con MongoDB y queda disponible localmente en
-`http://localhost:4000/api/health`. Compose espera a que MongoDB esté saludable antes de iniciar la API.
+El servicio `app` esperará a que el contenedor `sigca-mongodb` reporte estado saludable (`service_healthy`) antes de iniciar.
 
-```bash
-docker compose up -d --build --wait
-docker compose ps
-curl http://localhost:4000/api/health
-```
+---
 
-En entornos de desarrollo donde Docker no permita tráfico entre contenedores, inicia solo MongoDB
-con Compose y ejecuta la API desde el workspace; esta carga las variables de `.env` desde la raíz:
+## 📋 Matriz de Cumplimiento de Reglas de Negocio (RN-01 a RN-30)
 
-```bash
-docker compose up -d --wait mongo
-npm run dev --prefix backend
-```
+| Código | Regla de Negocio | Implementación en Backend | Estado |
+|---|---|---|---|
+| **RN-01** | No citas traslapadas para el mismo profesional | Validación de intervalo `[horaInicio, horaFin)` en `validateAppointmentRules()` | ✅ Implementado |
+| **RN-02** | Respetar horarios de atención configurados | Validación contra colección `horarios` según el día de la semana | ✅ Implementado |
+| **RN-03** | Paciente, servicio y profesional deben estar activos | Comprobación de estado `activo / ACTIVO` de las 3 entidades | ✅ Implementado |
+| **RN-04** | Menores de 18 años requieren responsable antes de agendar | Cálculo de edad con fecha de nacimiento; exige `responsableIds.length > 0` | ✅ Implementado |
+| **RN-05** | Citas CANCELADAS no pueden pasar a COMPLETADA | Validación de máquina de estados en `changeAppointmentStatus()` | ✅ Implementado |
+| **RN-06** | Citas COMPLETADAS no pueden reprogramarse | Bloqueo de mutación de fecha/hora en citas en estado COMPLETADA | ✅ Implementado |
+| **RN-07** | Servicios inactivos no pueden seleccionarse | Filtro y validación de estado del servicio antes de crear cita | ✅ Implementado |
+| **RN-08** | Usuarios inactivos no pueden iniciar sesión | Rechazo en endpoint `POST /api/auth/login` con código HTTP 403 | ✅ Implementado |
+| **RN-09** | Materiales solo a pacientes activos | Validación de estado activo en `POST /api/materiales/:id/asignar` | ✅ Implementado |
+| **RN-10** | Operaciones privadas requieren autenticación/autorización | Middlewares `authenticateToken` y `requireRole` en Express | ✅ Implementado |
+| **RN-11** | No citas en fechas u horas pasadas | Verificación de fecha y hora actual al programar | ✅ Implementado |
+| **RN-12** | Hora de fin calculada con duración del servicio | `horaFin = horaInicio + duracionMinutos` | ✅ Implementado |
+| **RN-13** | CANCELADAS y COMPLETADAS no bloquean horarios futuros | Exclusión de citas canceladas y completadas en verificación de traslape | ✅ Implementado |
+| **RN-14** | Pacientes inactivos no pueden recibir nuevas citas | Validación de `paciente.estado === 'ACTIVO'` | ✅ Implementado |
+| **RN-15** | Pagos asociados a citas existentes | Validación de existencia de `citaId` | ✅ Implementado |
+| **RN-16** | Monto de pago > 0 | Validación estricta `montoQ > 0` | ✅ Implementado |
+| **RN-17** | Total pagado no supera precio de la cita | Control `totalPagado + montoQ <= precioQ` | ✅ Implementado |
+| **RN-18** | Saldo pendiente calculado automáticamente | `saldo = roundQ(precioQ - totalPagosValidos)` | ✅ Implementado |
+| **RN-19** | Pagos anulados no cuentan en saldo ni ingresos | Exclusión de pagos con `estado === 'ANULADO'` en cálculos | ✅ Implementado |
+| **RN-20** | Pagos vinculados a caja abierta del usuario | Asociación obligatoria a caja con `estado === 'ABIERTA'` | ✅ Implementado |
+| **RN-21** | No pagos en cajas cerradas | Rechazo de transacciones sobre cajas cerradas | ✅ Implementado |
+| **RN-22** | Una sola caja abierta por usuario | Restricción en `POST /api/cajas/abrir` | ✅ Implementado |
+| **RN-23** | Cierre calcula totales por método y esperado | Sumatorias por EFECTIVO, TRANSFERENCIA, TARJETA y total | ✅ Implementado |
+| **RN-24** | Historial de movimientos conservado | Registro inmutable de ingresos y egresos en la caja | ✅ Implementado |
+| **RN-25** | Solo usuarios autorizados registran pagos y cierran caja | RBAC verificado en endpoints financieros | ✅ Implementado |
+| **RN-26** | Pagos no se eliminan físicamente | `DELETE /api/pagos/:id` bloqueado con HTTP 405 | ✅ Implementado |
+| **RN-27** | Cita con pagos válidos no puede cancelarse | Exige anular pagos primero en caja abierta antes de cancelar | ✅ Implementado |
+| **RN-28** | Precisión monetaria de dos decimales | Estrategia de centavos enteros con función `roundQ()` | ✅ Implementado |
+| **RN-29** | Auditoría de fecha y usuario en pagos/anulaciones | Registro de `usuarioId`, `atendidoPor`, `anuladoPor` y timestamps | ✅ Implementado |
+| **RN-30** | Validación de datos y códigos HTTP apropiados | 200 OK, 201 Created, 400 Bad Request, 401 Unauthorized, 403 Forbidden, 404 Not Found, 409 Conflict | ✅ Implementado |
 
-### Usuarios y autenticación
+---
 
-Antes de iniciar la API, agrega a tu `.env` local un `JWT_SECRET` generado con
-`openssl rand -hex 32`. Mantén la clave fuera de Git. Configura temporalmente
-`BOOTSTRAP_ADMIN_NAME`, `BOOTSTRAP_ADMIN_EMAIL` y una `BOOTSTRAP_ADMIN_PASSWORD` de al menos
-12 caracteres; luego crea el primer administrador con:
+## 📮 Colección Postman
 
-```bash
-npm run seed:admin --prefix backend
-```
+El archivo `SIGCA-Centro-Armonia.postman_collection.json` se encuentra en la raíz del repositorio. Incluye:
+- Manejo dinámico de variables de entorno (`baseUrl`, `adminToken`, `recepToken`, `profToken`).
+- Solicitudes organizadas por carpetas para todos los endpoints.
+- Scripts de prueba automatizados en JavaScript que guardan tokens al iniciar sesión y validan los estados de respuesta HTTP.
 
-El bootstrap no reemplaza usuarios existentes. Retira `BOOTSTRAP_ADMIN_PASSWORD` de `.env` después
-de usarlo. La API ofrece `POST /api/auth/login`, `GET /api/auth/me` y gestión administrativa en
-`/api/usuarios`; las rutas de usuarios requieren rol `ADMIN`. Los tokens Bearer duran una hora por
-defecto. Roles internos: `ADMIN` (administrador), `RECEPCION` y `PROFESIONAL`.
+---
 
-### API de servicios
+## 🧪 Procedimiento de Evaluación Funcional (Sección 16)
 
-- `GET /api/servicios`: catálogo público de servicios activos; acepta el filtro `?categoria=`.
-- `GET /api/servicios/admin`: listado completo, requiere `ADMIN`.
-- `POST /api/servicios`: crea servicio, requiere `ADMIN`.
-- `PUT /api/servicios/:id`: actualiza parcialmente campos válidos, requiere `ADMIN`.
-- `PATCH /api/servicios/:id/estado`: activa o desactiva el servicio, requiere `ADMIN`.
-
-Los precios se almacenan como centavos enteros (`precioCentavos`) y se exponen también como `precioQ`.
-La interfaz Vue todavía no consume estos endpoints; el catálogo y la administración existentes siguen
-leyendo el store local hasta completar su integración.
+Para demostrar el sistema frente al docente:
+1. **Iniciar sesión como Administrador**: Usar el botón "Iniciar Sesión" en la cabecera o seleccionar `smorales@centroarmonia.com.gt`.
+2. **Registrar un paciente**: Ir a *Pacientes* y crear un nuevo registro.
+3. **Asociar un responsable**: Asignar un tutor legal o padre de familia.
+4. **Crear un servicio con precio**: En *Servicios*, registrar una nueva especialidad (ej. Estimulación Sensorial, Q350).
+5. **Programar una cita**: Agendar en una fecha futura.
+6. **Intentar programar cita en horario ocupado**: Comprobar el bloqueo inmediato de traslape (RN-01).
+7. **Confirmar la cita**: Cambiar estado de PENDIENTE a CONFIRMADA.
+8. **Consultar en Calendario**: Visualizar la cita en la vista de cuadrícula mensual.
+9. **Abrir caja con monto inicial**: En *Caja Diaria*, abrir turno con Q200.00.
+10. **Registrar abono parcial**: Pagar Q150.00 de una cita de Q350.00.
+11. **Consultar saldo pendiente**: Verificar que refleja automáticamente Q200.00 de saldo y estado PARCIAL.
+12. **Registrar segundo pago**: Abonar los Q200.00 restantes.
+13. **Verificar estado PAGADO**: Comprobar que el saldo es Q0.00 y el estado cambia a PAGADO.
+14. **Consultar comprobante**: Generar e imprimir el comprobante con correlativo interno `REC-2026-XXXX`.
+15. **Registrar pagos multimetodo**: Efectivo, Transferencia y Tarjeta.
+16. **Consultar ingresos del día**: Ver el desglose discriminado en la vista de caja.
+17. **Arqueo y efectivo contado**: Ingresar el monto físico contado en caja.
+18. **Cerrar la caja**: Verificar el cálculo automático de sobrante o faltante.
+19. **Verificar bloqueo en caja cerrada**: Intentar registrar un pago adicional y comprobar que es rechazado (RN-21).
+20. **Cambiar de rol a Profesional**: Probar ingresar a *Usuarios* y verificar que el guard de interfaz bloquea el acceso por permisos insuficientes.

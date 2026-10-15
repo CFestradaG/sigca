@@ -55,7 +55,7 @@ const handleOpenEdit = (p: Patient) => {
   showAddModal.value = true;
 };
 
-const handleSubmit = () => {
+const handleSubmit = async () => {
   if (!formData.value.nombres.trim() || !formData.value.apellidos.trim()) return;
 
   if (editingPatient.value) {
@@ -71,7 +71,7 @@ const handleSubmit = () => {
       photoUrl: formData.value.photoUrl,
     });
   } else {
-    const created = store.addPatient({
+    const created = await store.addPatient({
       nombres: formData.value.nombres.trim(),
       apellidos: formData.value.apellidos.trim(),
       fechaNacimiento: formData.value.fechaNacimiento,
