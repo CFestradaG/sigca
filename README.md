@@ -3,6 +3,8 @@
 
 > **Centro Armonía**: Especialistas en Psicología Infantil, Neurodesarrollo y Estimulación Auditivo-Verbal (EAV) en Ciudad de Guatemala.
 
+> **Estado de revisión (2026-10-16):** hay dos implementaciones de API. La integración no está lista para uso real: las respuestas del API elegido no coinciden con el store Vue, el login actual no acepta esa respuesta y el entorno Vite no redirige `/api` al backend. Las matrices y capacidades listadas abajo describen funcionalidades del código legado, no una validación end-to-end del Compose activo.
+
 ---
 
 ## 👥 Integrantes del Equipo y Distribución de Responsabilidades (Sección 13)
@@ -25,6 +27,14 @@
 - **Contenedores**: [Docker](https://www.docker.com/) y Docker Compose con red interna y healthcheck.
 - **Pruebas y API**: Suite de pruebas automatizadas en TypeScript y colección exportada de Postman.
 
+### Estado técnico actual
+
+- El frontend está en la raíz y `npm run dev` solo inicia Vite.
+- El backend legado integrado está en `server.ts` y `server/`; el API modular más reciente está en `backend/` y por ahora cubre autenticación, usuarios y servicios. Son contratos distintos y no deben tratarse como un único backend.
+- `src/stores/appStore.ts` consume rutas relativas `/api/...`, pero `vite.config.ts` no configura proxy. Además, el store espera respuestas `{ success, data }` y nombres de campos distintos a los que devuelve `backend/`.
+- El guard de Vue carga un ADMIN de demostración cuando no hay usuario guardado; no usar datos reales hasta corregir y validar el flujo de login.
+- Existen `compose.yaml` y `docker-compose.yml`. Docker Compose advierte que hay configuraciones duplicadas; el segundo archivo contiene credenciales fijas y Mongo sin autenticación. Usa solo el Compose elegido y no publiques el legado.
+
 ---
 
 ## 🔐 Credenciales de Demostración (Sección 11)
@@ -37,6 +47,8 @@
 | **PROFESIONAL (EAV)** | `acastillo@centroarmonia.com.gt` | `Profe123!` | Consulta de su agenda personal, expediente básico de pacientes, marcar citas completadas y asignar materiales. |
 | **PROFESIONAL (Psicología)** | `evalencia@centroarmonia.com.gt` | `Profe123!` | Agenda de psicología infantil y neurodesarrollo. |
 | **PROFESIONAL (Lenguaje)**| `mramirez@centroarmonia.com.gt` | `Profe123!` | Agenda de terapia del lenguaje y articulación. |
+
+Estas credenciales son datos de demostración del backend legado; no son cuentas configuradas en el bootstrap del API modular ni deben usarse en despliegues.
 
 ---
 
@@ -51,37 +63,30 @@
 Copie el archivo de ejemplo:
 ```bash
 cp .env.example .env
+openssl rand -hex 32
 ```
-Contenido por defecto:
-```env
-PORT=3000
-NODE_ENV=development
-MONGODB_URI=mongodb://127.0.0.1:27017/sigca_armonia
-JWT_SECRET=sigca_centro_armonia_secret_key_2026_udg
-```
+Usa la salida de `openssl` como `JWT_SECRET` en `.env`; no reutilices una clave fija del README ni publiques `.env`.
 
 ### 3. Instalación de Dependencias
 ```bash
 npm install
 ```
 
-### 4. Carga de Datos de Prueba (Seed Script - Sección 11)
-El script siembra automáticamente las 13 colecciones requeridas (1 Admin, 2 Recepcionistas, 3 Profesionales, 10 Pacientes, 5 Responsables, 5 Servicios, 15 Citas, 5 Materiales, 5 Solicitudes, 10 Pagos, 3 Cajas abiertas y cerradas, Horarios y Mensajes):
-```bash
-npm run seed
-```
-
-### 5. Ejecución del Servidor Integrado (Frontend + API REST)
+### 4. Ejecución del Frontend
 ```bash
 npm run dev
 ```
-La aplicación estará disponible en `http://localhost:3000`.
+El frontend estará disponible en `http://localhost:3000`. Este comando inicia Vite, no el servidor legado `server.ts`.
+
+### 5. Scripts de datos y pruebas
+
+El `package.json` actual no define los scripts `seed` ni `test` que aparecen en la versión original de esta guía. `scripts/test-api.ts` y `scripts/seed.ts` existen, pero no están conectados a comandos npm. **No ejecutes `scripts/seed.ts` sobre una base con datos que quieras conservar:** elimina todos los documentos de sus colecciones antes de insertar las fixtures.
 
 ### 6. Ejecución de Pruebas Automatizadas de Reglas de Negocio
 ```bash
 npm test
 ```
-Ejecuta la suite de pruebas unitarias y de integración que valida el cumplimiento estricto de las reglas RN-01 a RN-30 (traslapes, menores sin responsable, horarios, cálculo de saldo, estado financiero, no eliminación física, arqueo de caja y diferencias).
+Este comando actualmente falla porque no existe el script `test` en `package.json`. La cobertura de reglas descrita más abajo debe considerarse pendiente de ejecución hasta registrar y correr esa suite.
 
 ---
 
@@ -90,21 +95,23 @@ Ejecuta la suite de pruebas unitarias y de integración que valida el cumplimien
 Para levantar tanto el servicio de MongoDB como la aplicación compilada con un solo comando:
 
 ```bash
-# Construir imágenes y levantar contenedores en segundo plano
-docker-compose up --build -d
+# Elige explícitamente una configuración; ambas Compose del repo son diferentes.
+docker compose -f compose.yaml up --build -d
 
 # Ver registros en tiempo real
-docker-compose logs -f
+docker compose -f compose.yaml logs -f
 
 # Detener contenedores
-docker-compose down
+docker compose -f compose.yaml down
 ```
 
-El servicio `app` esperará a que el contenedor `sigca-mongodb` reporte estado saludable (`service_healthy`) antes de iniciar.
+`compose.yaml` define MongoDB y el API modular de `backend/`; el frontend Vite no está incluido. El `docker-compose.yml` legado usa otro Dockerfile, Mongo sin autenticación y un JWT fijo. No lo uses para despliegue. En este Codespace se observó que el tráfico TCP entre contenedores no funciona; la imagen del Compose legado también carece de dependencias runtime del API después de separar los manifiestos.
 
 ---
 
-## 📋 Matriz de Cumplimiento de Reglas de Negocio (RN-01 a RN-30)
+## 📋 Matriz de Cumplimiento Declarado de Reglas de Negocio (RN-01 a RN-30)
+
+Las marcas siguientes reflejan capacidades declaradas en el backend legado (`server/`), no pruebas de que el frontend, `backend/` modular y Compose estén integrados entre sí. La aceptación requiere pruebas end-to-end contra la configuración Docker que se vaya a entregar.
 
 | Código | Regla de Negocio | Implementación en Backend | Estado |
 |---|---|---|---|
@@ -153,7 +160,9 @@ El archivo `SIGCA-Centro-Armonia.postman_collection.json` se encuentra en la ra�
 ## 🧪 Procedimiento de Evaluación Funcional (Sección 16)
 
 Para demostrar el sistema frente al docente:
-1. **Iniciar sesión como Administrador**: Usar el botón "Iniciar Sesión" en la cabecera o seleccionar `smorales@centroarmonia.com.gt`.
+> **Bloqueo actual:** no tomar esta secuencia como validada todavía. El login Vue espera un contrato distinto al API modular; además, el Compose legado no incluye dependencias runtime del servidor.
+
+1. **Iniciar sesión como Administrador**: primero debe corregirse y validar el flujo de login Vue/API; hoy no es demostrable con el Compose modular.
 2. **Registrar un paciente**: Ir a *Pacientes* y crear un nuevo registro.
 3. **Asociar un responsable**: Asignar un tutor legal o padre de familia.
 4. **Crear un servicio con precio**: En *Servicios*, registrar una nueva especialidad (ej. Estimulación Sensorial, Q350).

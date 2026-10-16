@@ -1,7 +1,7 @@
 # Mapa del proyecto SIGCA
 
-**Revisado:** 2026-10-15  
-**Estado observado:** frontend de demostración basado en `localStorage`; API parcial con Mongo para autenticación, usuarios y servicios. No asumir que el resto de módulos tiene persistencia o autorización de servidor.
+**Revisado:** 2026-10-16
+**Estado observado:** frontend Vue intenta consumir API con fallback local; existen dos implementaciones de backend incompatibles y dos configuraciones Compose. No considerar autenticación, persistencia ni requisitos funcionales verificados end-to-end.
 
 Este documento es el índice de contexto del repositorio. Actualízalo cuando cambien rutas, módulos principales, modelo de datos, persistencia o comandos. La navegación y el modelo fuente de verdad siguen siendo los archivos de `src/`.
 
@@ -31,16 +31,18 @@ flowchart TD
 |---|---|---|
 | Arranque | `src/main.ts` | Crea Vue, instala Pinia y Vue Router, monta `App.vue`. |
 | Shell | `src/App.vue` | Decide layout público/administrativo según prefijo `/admin`; monta modal global de comprobante. |
-| Rutas | `src/router/index.ts` | Define rutas públicas y administrativas; no configura guards ni autorización. |
+| Rutas | `src/router/index.ts` | Define rutas públicas y administrativas con guards de interfaz; el usuario por defecto invalida el cierre seguro. |
 | Estado/dominio | `src/stores/appStore.ts` | Store Pinia único: datos, acciones de negocio y persistencia manual. |
 | Contratos | `src/types/index.ts` | Tipos de usuarios, pacientes, citas, pagos, caja, materiales y contenido. |
 | Datos de demo | `src/data/mockData.ts` | Semillas locales para la demostración. |
-| API | `backend/src/server.ts` | Express, conexión Mongoose, healthcheck y rutas de auth/usuarios. |
+| API modular | `backend/src/server.ts` | Express, conexión Mongoose, healthcheck y rutas de auth/usuarios/servicios. |
 | Usuarios | `backend/src/modules/users/` | Esquema de usuario, hash de contraseña y endpoints administrativos. |
 | Autenticación | `backend/src/modules/auth/` | Login JWT, verificación de usuario activo y autorización por rol. |
 | Servicios | `backend/src/modules/services/` | Catálogo público de activos y CRUD administrativo; precios en centavos enteros. |
 | Bootstrap | `backend/src/seed/bootstrapAdmin.ts` | Alta única del administrador inicial desde variables locales. |
 | Imagen de API | `backend/Dockerfile` | Compila TypeScript y ejecuta el servidor Node. |
+| API legado | `server.ts`, `server/` | Backend integrado con Vite, repositorio, modelos y rutas de más módulos; manifiesto raíz actual ya no declara sus dependencias. |
+| Compose legado | `docker-compose.yml`, `Dockerfile` | Alternativa distinta a `compose.yaml`; tiene Mongo sin auth y secret fijo, y la imagen no contiene Express/Mongoose en runtime. |
 | Componentes comunes | `src/components/public/`, `src/components/admin/` | Headers, navegación y modales compartidos. |
 | Vistas | `src/views/public/`, `src/views/admin/` | Pantallas asociadas a las rutas. |
 | Estilos | `src/index.css` | Tailwind v4, tokens globales y reglas de impresión. |
@@ -82,11 +84,12 @@ flowchart TD
 
 ## Estado y flujo de datos
 
-- `useAppStore` es el almacén común de las vistas Vue. Las entidades principales incluyen usuarios, pacientes, responsables, servicios, citas, solicitudes, pagos, caja, materiales, contenido y mensajes.
-- `mockData.ts` proporciona los datos iniciales. El store lee/escribe JSON en `localStorage` con el prefijo `sigca_armonia_vue_`; cada acción de mutación llama a `persistAll()`.
-- Las solicitudes, mensajes y catálogo que ve actualmente Vue se mantienen en ese store local; el frontend todavía no consume la API.
-- La API Express persiste usuarios y servicios en MongoDB. El catálogo público expone solo servicios activos; el CRUD completo de servicios está protegido para `ADMIN`.
-- El selector del sidebar cambia el usuario/rol de demostración y filtra enlaces visibles. Esto no equivale a autenticación ni autorización: el router no bloquea rutas directas.
+- `useAppStore` intenta consumir múltiples rutas `/api/...` y mantiene fixtures como fallback local.
+- La llamada usa rutas relativas, pero Vite no tiene proxy y la API no configura CORS; con `npm run dev`, las llamadas no llegan a `backend/`.
+- El contrato tampoco coincide: Vue espera `success`, `data`, `nombre`, `rol` y `activo`; `backend/` devuelve `{ token, user }`, `{ services }` y campos `name`, `role`, `active`.
+- El store marca `apiConnected = true` aunque `Promise.allSettled` rechace todas las peticiones. Las mutaciones capturan errores y modifican el fallback local, lo que aparenta guardar aunque no se persista.
+- Sin sesión, `getStoredUser()` devuelve `initialUsers[0]` (ADMIN), por lo que el guard de Vue permite entrar a rutas administrativas. El backend limita rutas, pero la UI no es un control de seguridad.
+- El backend modular persiste usuarios y servicios. El backend legado ofrece una implementación más amplia, pero la configuración activa no está unificada ni se ha validado end-to-end.
 - El comprobante es una vista imprimible local. La consigna excluye explícitamente facturación electrónica, así que SAT-FEL no es criterio de aceptación; la etiqueta “SAT-FEL OK” y las afirmaciones del README sí deben aclararse para no prometer una integración inexistente.
 
 ## Desarrollo y validación
@@ -99,25 +102,28 @@ npm run dev       # Vite en 0.0.0.0:3000
 npm run lint      # vue-tsc --noEmit
 npm run build     # vue-tsc y build de producción
 npm run preview   # Vista previa en puerto 3000
+npm run build --prefix backend
+npm run dev --prefix backend
 ```
 
-Validación de esta revisión: `npm run build` y `npm run build --prefix backend` completaron correctamente el 2026-10-15. Se probó manualmente el CRUD de servicios, precios en centavos y controles de rol con documentos sintéticos, limpiados al finalizar. No hay suite de pruebas automatizadas definida.
+Validación de esta revisión (2026-10-16): frontend y backend compilan; el build del Compose legado crea una imagen, pero su runtime reporta Express/Mongoose/bcrypt/JWT como dependencias ausentes. No se encontró script `test` ni `seed` en `package.json`. `npm ci --dry-run` finalizó sin error. El CRUD/auth de `backend/` tuvo pruebas manuales anteriormente, pero no hay suite automatizada conectada.
 
 ## Evaluación y prioridades
 
 **Fortalezas observadas:** separación clara entre vistas públicas y administrativas; tipos de dominio explícitos; un store reutilizado por ambos flujos; build de producción correcto; prototipos de diseño y tokens visuales documentados.
 
-**Límite principal:** tratar el sistema como demostración, no como sistema clínico desplegable. Ya existe API con Mongo para auth, usuarios y servicios, pero la mayoría de las vistas sigue usando `localStorage` y las reglas de citas/pagos/caja aún no están implementadas en servidor. No introducir datos personales reales.
+**Límite principal:** tratar el sistema como demostración, no como sistema clínico desplegable. Hay un API modular parcial y otro API legado; el frontend no autentica contra el API modular y cae silenciosamente a fixtures/local state. No introducir datos personales reales.
 
 **Siguientes prioridades antes de uso real:**
 
-1. Conectar el frontend al login y a la API de servicios; implementar guards visuales como complemento de la autorización del servidor.
-2. Extender API/Mongo a pacientes, responsables y citas, aplicando allí las reglas de negocio.
-3. Diseñar privacidad, auditoría, retención y protección de información clínica conforme a las obligaciones aplicables.
-4. Añadir pruebas de flujos críticos: solicitud→cita, cálculo de saldo, pagos y cierre de caja.
-5. Alinear el README con la consigna y los tipos: los únicos métodos requeridos son efectivo, transferencia y tarjeta; el README menciona cheque y SAT-FEL, que no forman parte del alcance obligatorio.
-6. Resolver la configuración de dependencias: `bun.lock` está versionado, mientras `package-lock.json` aparece sin seguimiento. Se añadieron `.gitignore` y `.dockerignore`; decidir un solo gestor de paquetes y qué lockfile conservar antes de preparar el commit.
-7. Crear una cuenta MongoDB de aplicación con privilegios mínimos; Compose aún entrega la cuenta root al backend y eso es solo para desarrollo.
+1. Elegir una sola implementación API/Compose y alinear manifiestos, rutas, respuesta JSON y proxy/CORS.
+2. Eliminar el usuario ADMIN por defecto en Pinia; sin token debe fallar cerrado y el login debe mapear `{token,user:{name,role}}` del backend.
+3. Corregir la imagen Compose legado o retirar esa ruta; usar Mongo autenticado y secretos por entorno, sin secretos en el YAML.
+4. Conectar frontend y backend con manejo de error visible; no permitir fallback local silencioso en operaciones de escritura.
+5. Exponer `test`/`seed` como scripts npm; hacer el seed no destructivo o exigir confirmación y base explícita.
+6. Extender API/Mongo a pacientes, responsables y citas, aplicando allí las reglas de negocio.
+7. Diseñar privacidad, auditoría, retención y protección de información clínica conforme a las obligaciones aplicables.
+8. Añadir pruebas end-to-end de solicitud→cita, saldos, pagos y caja; no marcar RN como completadas hasta correrlas.
 
 ### Alineación con la consigna académica
 
@@ -126,9 +132,9 @@ La consigna en `docs/Proyecto_-Sistema-Integral-de-Gestion-de-Citas-y.md` exige 
 | Requisitos | Estado observado |
 |---|---|
 | RF-01 portal público | Vistas y formularios presentes; solicitudes, mensajes y contenido no persisten en MongoDB. El catálogo aún no consume la API. |
-| RF-02 autenticación y roles | API de login JWT, cuentas inactivas bloqueadas y permisos de servidor para usuarios/servicios; falta pantalla de login y protección en Vue para los demás módulos. |
+| RF-02 autenticación y roles | El API modular tiene login/JWT y RBAC para usuarios/servicios, pero el login Vue espera un contrato diferente. El guard también da ADMIN por defecto cuando falta sesión. No está cumplido end-to-end. |
 | RF-03–04 pacientes y responsables | Pantallas y datos locales; API/Mongo todavía no implementados. |
-| RF-05 servicios | CRUD API en Mongo con autorización ADMIN y precios en centavos; falta conectar las vistas Vue. |
+| RF-05 servicios | CRUD en `backend/`, pero Vue espera `{data}` y el API responde `{service}`; sin proxy, las vistas no persisten contra Mongo. |
 | RF-06 solicitudes | Formulario y bandeja local presentes; no se persiste en servidor. |
 | RF-07–08 citas y calendario | Vistas locales presentes; las reglas de disponibilidad y transiciones deben validarse en backend. |
 | RF-09 materiales | Pantalla y asignación local presentes; falta API/DB. |
@@ -140,7 +146,7 @@ La consigna en `docs/Proyecto_-Sistema-Integral-de-Gestion-de-Citas-y.md` exige 
 | API, base Mongo/Mongoose | Implementación inicial de auth, usuarios y servicios; faltan los demás módulos y seeds completos de la consigna. |
 | Entregables | `.env.example`, Docker y backend base presentes; faltan colección Postman, datos completos, README de credenciales ficticias y pruebas automatizadas. |
 
-Docker y Docker Compose están disponibles en el entorno de revisión. `compose.yaml` incluye MongoDB oficial con healthcheck y volumen persistente, además de la API Express/Mongoose. En el Docker de este workspace se observó que contenedores hermanos no alcanzan por TCP Mongo; desde el workspace sí funciona `127.0.0.1:27017`, por lo que Mongo corre en Compose y la API en el host para desarrollo. La API implementa autenticación JWT y administración de usuarios/servicios con RBAC; `GET /api/servicios` expone solo activos. Los precios de servicios se almacenan en centavos enteros. El frontend todavía no consume esos endpoints. Pruebas sintéticas de login, permisos y CRUD de servicios pasaron; documentos creados durante las pruebas fueron limpiados. El entorno local requiere `JWT_SECRET` y un administrador bootstrap. En Docker normal, API y Mongo permanecen en la red interna Compose. La API usa todavía el usuario Mongo root en desarrollo; debe reemplazarse por un usuario de aplicación de privilegios mínimos antes de producción. El frontend aún no está en Compose.
+Hay dos configuraciones Compose. `compose.yaml` construye el API modular y Mongo con auth; en este Codespace no se pudo validar tráfico TCP entre contenedores. `docker-compose.yml` usa el backend legado, expone Mongo sin auth y define un JWT fijo. Su imagen compila, pero el runtime no contiene Express/Mongoose/bcrypt/JWT porque `package.json` raíz ya no los declara. El API legado tiene más rutas, pero los scripts npm actuales no lo arrancan ni ejecutan su seed/pruebas. El API modular sí compila y sus pruebas manuales históricas de auth/servicios pasaron, pero Vue no consume correctamente su contrato. No existe aún una combinación que haya pasado una prueba end-to-end.
 
 ## Cómo mantener este mapa
 

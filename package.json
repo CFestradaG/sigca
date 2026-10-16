@@ -5,11 +5,12 @@
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
-    "build": "vue-tsc --noEmit && vite build",
     "start": "tsx server.ts",
+    "build": "vue-tsc --noEmit && vite build",
+    "preview": "vite preview --host 0.0.0.0 --port 3000",
+    "lint": "vue-tsc --noEmit",
     "test": "tsx scripts/test-api.ts",
-    "seed": "tsx scripts/seed.ts",
-    "lint": "vue-tsc --noEmit"
+    "seed": "tsx scripts/seed.ts"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",
@@ -27,7 +28,6 @@
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.0.0",
-    "@types/bcryptjs": "^3.0.0",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
     "@types/jsonwebtoken": "^9.0.10",

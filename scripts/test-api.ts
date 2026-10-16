@@ -45,24 +45,49 @@ async function runTests() {
 
   // Test 3: RN-01 - No overlapping appointments
   console.log('\n[Test 3] RN-01: Traslape de citas para el mismo profesional');
-  // cit-1 is 2026-10-16 from 09:00 to 09:45 with usr-4
+  const latestAppointmentDate = Repository.getAppointments()
+    .reduce((latest: string, appointment: any) => appointment.fecha > latest ? appointment.fecha : latest, '2000-01-01');
+  const overlapDate = new Date(`${latestAppointmentDate}T12:00:00`);
+  overlapDate.setDate(overlapDate.getDate() + 1);
+  const activeDays = new Set(
+    Repository.getSchedules()
+      .filter((schedule: any) => schedule.activo)
+      .map((schedule: any) => schedule.diaNumero),
+  );
+  while (!activeDays.has(overlapDate.getDay() || 7)) {
+    overlapDate.setDate(overlapDate.getDate() + 1);
+  }
+  const overlapDateString = `${overlapDate.getFullYear()}-${String(overlapDate.getMonth() + 1).padStart(2, '0')}-${String(overlapDate.getDate()).padStart(2, '0')}`;
+  await Repository.createAppointment({
+    pacienteId: 'pac-1',
+    servicioId: 'srv-1',
+    profesionalId: 'usr-4',
+    fecha: overlapDateString,
+    horaInicio: '10:00',
+  });
+
   const valOverlap = Repository.validateAppointmentRules({
     pacienteId: 'pac-1',
     servicioId: 'srv-1', // 45 min
     profesionalId: 'usr-4',
-    fecha: '2026-10-16',
-    horaInicio: '09:15', // Overlaps with 09:00-09:45
+    fecha: overlapDateString,
+    horaInicio: '10:15', // Overlaps with 10:00-10:45
   });
-  assert(!valOverlap.valid && valOverlap.code === 'RN-01', 'Bloquea cita traslapada con intervalo ocupado (09:15 vs 09:00-09:45)');
+  assert(!valOverlap.valid && valOverlap.code === 'RN-01', 'Bloquea cita traslapada con intervalo ocupado (10:15 vs 10:00-10:45)');
 
   // Test 4: RN-02 - Respect schedule
   console.log('\n[Test 4] RN-02: Respeto a horarios de atención');
-  // Sunday is diaNumero 7 (inactive in seed data)
+  const nextSunday = new Date();
+  nextSunday.setDate(nextSunday.getDate() + 1);
+  while (nextSunday.getDay() !== 0) {
+    nextSunday.setDate(nextSunday.getDate() + 1);
+  }
+  const sundayDate = `${nextSunday.getFullYear()}-${String(nextSunday.getMonth() + 1).padStart(2, '0')}-${String(nextSunday.getDate()).padStart(2, '0')}`;
   const valSunday = Repository.validateAppointmentRules({
     pacienteId: 'pac-1',
     servicioId: 'srv-1',
     profesionalId: 'usr-4',
-    fecha: '2026-10-18', // Wait, 2026-10-18 is Sunday!
+    fecha: sundayDate,
     horaInicio: '10:00',
   });
   assert(!valSunday.valid && valSunday.code === 'RN-02', 'Bloquea cita en día inhábil / no activo (Domingo)');
@@ -73,8 +98,8 @@ async function runTests() {
   const valRN12 = Repository.validateAppointmentRules({
     pacienteId: 'pac-1',
     servicioId: 'srv-1',
-    profesionalId: 'usr-4',
-    fecha: '2026-10-21',
+    profesionalId: 'usr-5',
+    fecha: overlapDateString,
     horaInicio: '10:00',
   });
   assert(valRN12.calculatedHoraFin === '10:45', 'Hora de fin calculada como 10:45 para servicio de 45 min');
