@@ -5,22 +5,21 @@ WORKDIR /app
 
 # Install dependencies
 COPY package*.json ./
-RUN npm ci
+RUN npm ci --no-audit --no-fund && test -x node_modules/.bin/vue-tsc
 
 # Copy source and build frontend assets
 COPY . .
 RUN npm run build
 
-# Production runtime container
+# Runtime container reuses the dependency installation from the build stage.
 FROM node:20-alpine AS runner
 
 WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=3000
 
-# Install production dependencies
 COPY package*.json ./
-RUN npm ci --only=production && npm install -g tsx
+COPY --from=builder /app/node_modules ./node_modules
 
 # Copy built application and server code
 COPY --from=builder /app/dist ./dist
@@ -30,4 +29,4 @@ COPY --from=builder /app/server.ts ./server.ts
 
 EXPOSE 3000
 
-CMD ["tsx", "server.ts"]
+CMD ["./node_modules/.bin/tsx", "server.ts"]

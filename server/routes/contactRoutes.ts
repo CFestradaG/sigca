@@ -46,7 +46,7 @@ contactRouter.get('/', (_req, res: Response) => {
 // PATCH /api/contacto/:id/leer
 contactRouter.patch('/:id/leer', async (req, res: Response) => {
   try {
-    const updated = await Repository.markMessageAsRead(req.params.id);
+    const updated = await Repository.markMessageAsRead(String(req.params.id));
     if (!updated) return res.status(404).json({ success: false, message: 'Mensaje no encontrado' });
     return res.status(200).json({ success: true, data: updated });
   } catch (err: any) {

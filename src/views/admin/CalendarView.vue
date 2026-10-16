@@ -47,6 +47,7 @@ const appointmentsForSelectedDate = computed(() => {
   const dateStr = formatDayDate(selectedDay.value);
   return store.appointments
     .filter((a) => a.fecha === dateStr)
+    .filter((a) => siteMatches(a.sede))
     .filter((a) => (selectedProfessional.value === 'TODOS' ? true : a.profesionalId === selectedProfessional.value))
     .sort((a, b) => a.horaInicio.localeCompare(b.horaInicio));
 });
@@ -55,7 +56,16 @@ const getDayAppointments = (day: number) => {
   const dateStr = formatDayDate(day);
   return store.appointments
     .filter((a) => a.fecha === dateStr)
+    .filter((a) => siteMatches(a.sede))
     .filter((a) => (selectedProfessional.value === 'TODOS' ? true : a.profesionalId === selectedProfessional.value));
+};
+
+const siteMatches = (sede: string) => {
+  const value = (sede || '').toLowerCase();
+  if (store.selectedSite === 'todas') return true;
+  if (store.selectedSite === 'z10') return value.includes('10') || value.includes('sixtino');
+  if (store.selectedSite === 'z14') return value.includes('14') || value.includes('europlaza') || value.includes('américa');
+  return value.includes('línea') || value.includes('linea') || value.includes('online');
 };
 
 const goToPatient = (patientId: string) => {

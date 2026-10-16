@@ -17,12 +17,11 @@ const store = useAppStore();
 const route = useRoute();
 const router = useRouter();
 
-const currentRole = computed<UserRole>(() => store.currentUser?.role || 'ADMIN');
+const currentRole = computed<UserRole>(() => store.activeRoleView || store.currentUser?.role || 'ADMIN');
 
 const handleRoleChange = (event: Event) => {
   const role = (event.target as HTMLSelectElement).value as UserRole;
-  const userForRole = store.users.find((u) => u.role === role) || store.users[0];
-  store.setCurrentUser(userForRole);
+  store.setActiveRoleView(role);
 
   // If the current route is not permitted for the new role, redirect to dashboard
   const currentNav = navItems.find((item) => item.path === route.path);
@@ -99,9 +98,10 @@ const visibleNavItems = computed(() => {
               @change="handleRoleChange"
               class="w-full appearance-none bg-white text-xs font-semibold text-[#1d1c16] py-2 pl-3 pr-8 rounded-xl border border-[#bcc9c6] focus:outline-none focus:ring-2 focus:ring-[#00685d] cursor-pointer"
             >
-              <option value="ADMIN">Administrador General</option>
-              <option value="RECEPCION">Recepción y Caja</option>
-              <option value="PROFESIONAL">Terapeuta / Profesional</option>
+              <option v-if="store.currentUser?.role === 'ADMIN'" value="ADMIN">Administrador General</option>
+              <option v-if="store.currentUser?.role === 'ADMIN'" value="RECEPCION">Recepción y Caja</option>
+              <option v-if="store.currentUser?.role === 'ADMIN'" value="PROFESIONAL">Terapeuta / Profesional</option>
+              <option v-if="store.currentUser?.role !== 'ADMIN'" :value="store.currentUser?.role">{{ store.currentUser?.role === 'RECEPCION' ? 'Recepción y Caja' : 'Terapeuta / Profesional' }}</option>
             </select>
             <span class="material-symbols-outlined pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-[#6d7a77]">
               unfold_more

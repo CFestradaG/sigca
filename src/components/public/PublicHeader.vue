@@ -1,9 +1,15 @@
 <script setup lang="ts">
 import { useRoute } from 'vue-router';
 import { useAppStore } from '../../stores/appStore';
+import { computed } from 'vue';
 
 const store = useAppStore();
 const route = useRoute();
+const hasPortalAccess = computed(() =>
+  store.authReady &&
+  store.currentUser?.active === true &&
+  ['ADMIN', 'RECEPCION', 'PROFESIONAL'].includes(store.currentUser.role)
+);
 
 const emit = defineEmits<{
   (e: 'openLogin'): void;
@@ -92,6 +98,7 @@ const navItems = [
 
         <!-- Iniciar Sesión modal trigger -->
         <button
+          v-if="store.authReady && !store.currentUser"
           @click="emit('openLogin')"
           type="button"
           class="inline-flex items-center gap-1.5 bg-white hover:bg-[#ece8df] text-[#00685d] text-sm font-semibold px-3 py-2.5 rounded-xl transition-all cursor-pointer border border-[#bcc9c6]"
@@ -101,9 +108,21 @@ const navItems = [
         </button>
 
         <!-- Quick link to Admin Portal -->
+        <button
+          v-else-if="store.authReady && store.currentUser"
+          @click="store.logout()"
+          type="button"
+          title="Cerrar sesión"
+          class="inline-flex items-center gap-1.5 bg-white hover:bg-[#ece8df] text-[#00685d] text-sm font-semibold px-3 py-2.5 rounded-xl transition-all cursor-pointer border border-[#bcc9c6]"
+        >
+          <span class="material-symbols-outlined text-lg">logout</span>
+          <span class="hidden md:inline">Cerrar sesión</span>
+        </button>
+
         <router-link
+          v-if="hasPortalAccess"
           to="/admin/dashboard"
-          title="Acceso al Portal Administrativo SIGCA"
+          :title="`Portal SIGCA · ${store.currentUser?.role}`"
           class="inline-flex items-center gap-1.5 bg-[#f2ede4] hover:bg-[#ece8df] text-[#00685d] text-sm font-semibold px-3 py-2.5 rounded-xl transition-all cursor-pointer border border-[#bcc9c6]"
         >
           <span class="material-symbols-outlined text-lg">admin_panel_settings</span>

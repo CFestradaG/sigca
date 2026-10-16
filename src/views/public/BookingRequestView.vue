@@ -18,27 +18,36 @@ const form = ref({
 
 const submittedId = ref<string | null>(null);
 const errorMsg = ref('');
+const isSubmitting = ref(false);
 
 const selectedService = computed(() => {
   return store.services.find((s) => s.id === form.value.servicioId) || activeServices.value[0];
 });
 
-const handleSubmit = () => {
+const handleSubmit = async () => {
+  if (isSubmitting.value) return;
   if (!form.value.solicitanteNombre.trim() || !form.value.email.trim() || !form.value.telefono.trim()) {
     errorMsg.value = 'Por favor complete todos los datos de contacto obligatorios.';
     return;
   }
   errorMsg.value = '';
-  store.submitAppointmentRequest({
-    solicitanteNombre: form.value.solicitanteNombre.trim(),
-    email: form.value.email.trim(),
-    telefono: form.value.telefono.trim(),
-    servicioId: form.value.servicioId || activeServices.value[0]?.id || '',
-    sedePreferida: form.value.sedePreferida,
-    fechaPreferida: form.value.fechaPreferida,
-    mensaje: form.value.mensaje.trim(),
-  });
-  submittedId.value = `SOL-${Math.floor(1000 + Math.random() * 9000)}`;
+  isSubmitting.value = true;
+  try {
+    const request = await store.submitAppointmentRequest({
+      solicitanteNombre: form.value.solicitanteNombre.trim(),
+      email: form.value.email.trim(),
+      telefono: form.value.telefono.trim(),
+      servicioId: form.value.servicioId || activeServices.value[0]?.id || '',
+      sedePreferida: form.value.sedePreferida,
+      fechaPreferida: form.value.fechaPreferida,
+      mensaje: form.value.mensaje.trim(),
+    });
+    submittedId.value = request.id;
+  } catch (err: any) {
+    errorMsg.value = err?.message || 'No se pudo enviar la solicitud. Inténtelo de nuevo.';
+  } finally {
+    isSubmitting.value = false;
+  }
 };
 </script>
 
@@ -255,10 +264,11 @@ const handleSubmit = () => {
 
           <button
             type="submit"
-            class="w-full sm:w-auto px-8 py-3.5 bg-[#a33d23] hover:bg-[#83260e] text-white font-bold text-sm rounded-xl shadow-sm transition-all cursor-pointer flex items-center justify-center gap-2"
+            :disabled="isSubmitting"
+            class="w-full sm:w-auto px-8 py-3.5 bg-[#a33d23] hover:bg-[#83260e] text-white font-bold text-sm rounded-xl shadow-sm transition-all cursor-pointer flex items-center justify-center gap-2 disabled:opacity-60"
           >
-            <span class="material-symbols-outlined text-lg">send</span>
-            <span>Confirmar y Enviar Solicitud</span>
+            <span class="material-symbols-outlined text-lg">{{ isSubmitting ? 'progress_activity' : 'send' }}</span>
+            <span>{{ isSubmitting ? 'Enviando…' : 'Confirmar y Enviar Solicitud' }}</span>
           </button>
         </div>
       </form>

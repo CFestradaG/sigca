@@ -16,7 +16,7 @@ userRouter.get('/', (_req, res: Response) => {
 
 // GET /api/usuarios/:id
 userRouter.get('/:id', (req, res: Response) => {
-  const user = Repository.getUserById(req.params.id);
+  const user = Repository.getUserById(String(req.params.id));
   if (!user) {
     return res.status(404).json({ success: false, message: 'Usuario no encontrado' });
   }
@@ -28,14 +28,21 @@ userRouter.post('/', async (req, res: Response) => {
   try {
     const { nombre, email, password, rol, especialidad, telefono, avatarUrl } = req.body;
 
-    if (!nombre || !email || !password || !rol) {
+    if (!nombre?.trim() || !email?.trim() || !password || !rol) {
       return res.status(400).json({
         success: false,
         message: 'RN-30: Datos incompletos. Nombre, correo, contraseña y rol son obligatorios.',
       });
     }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || password.length < 8 ||
+      !['ADMIN', 'RECEPCION', 'PROFESIONAL'].includes(rol)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Correo, contraseña (mínimo 8 caracteres) o rol no válido.',
+      });
+    }
 
-    const existing = Repository.getUserByEmail(email);
+    const existing = Repository.getUserByEmail(email.trim());
     if (existing) {
       return res.status(409).json({
         success: false,
@@ -46,7 +53,7 @@ userRouter.post('/', async (req, res: Response) => {
     const passwordHash = bcrypt.hashSync(password, 10);
     const newUser = await Repository.createUser({
       nombre,
-      email,
+      email: email.trim().toLowerCase(),
       passwordHash,
       rol,
       especialidad,
@@ -68,16 +75,32 @@ userRouter.post('/', async (req, res: Response) => {
 // PUT /api/usuarios/:id
 userRouter.put('/:id', async (req, res: Response) => {
   try {
+    const id = String(req.params.id);
     const { nombre, email, rol, especialidad, telefono, avatarUrl, activo } = req.body;
-    const updated = await Repository.updateUser(req.params.id, {
-      nombre,
-      email,
-      rol,
-      especialidad,
-      telefono,
-      avatarUrl,
-      activo,
-    });
+    if (rol !== undefined && !['ADMIN', 'RECEPCION', 'PROFESIONAL'].includes(rol)) {
+      return res.status(400).json({ success: false, message: 'Rol de usuario inválido.' });
+    }
+    if (email !== undefined) {
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        return res.status(400).json({ success: false, message: 'Correo electrónico no válido.' });
+      }
+      const existing = Repository.getUserByEmail(email.trim());
+      if (existing && existing.id !== id) {
+        return res.status(409).json({ success: false, message: 'Ya existe un usuario con ese correo.' });
+      }
+    }
+    const updates = Object.fromEntries(
+      Object.entries({
+        nombre: typeof nombre === 'string' ? nombre.trim() : undefined,
+        email: typeof email === 'string' ? email.trim().toLowerCase() : undefined,
+        rol,
+        especialidad,
+        telefono,
+        avatarUrl,
+        activo: typeof activo === 'boolean' ? activo : undefined,
+      }).filter(([, value]) => value !== undefined)
+    );
+    const updated = await Repository.updateUser(id, updates);
 
     if (!updated) {
       return res.status(404).json({ success: false, message: 'Usuario no encontrado' });
@@ -105,7 +128,7 @@ userRouter.patch('/:id/password', async (req, res: Response) => {
     }
 
     const passwordHash = bcrypt.hashSync(newPassword, 10);
-    const updated = await Repository.updateUser(req.params.id, { passwordHash });
+    const updated = await Repository.updateUser(String(req.params.id), { passwordHash });
 
     if (!updated) {
       return res.status(404).json({ success: false, message: 'Usuario no encontrado' });

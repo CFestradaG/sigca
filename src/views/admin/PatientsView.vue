@@ -3,6 +3,7 @@ import { ref, computed } from 'vue';
 import { useAppStore } from '../../stores/appStore';
 import { Patient } from '../../types';
 import PatientDetailModal from '../../components/admin/PatientDetailModal.vue';
+import ImageUploadField from '../../components/shared/ImageUploadField.vue';
 
 const store = useAppStore();
 
@@ -10,6 +11,8 @@ const searchTerm = ref('');
 const statusFilter = ref<'TODOS' | 'ACTIVO' | 'INACTIVO'>('TODOS');
 const showAddModal = ref(false);
 const editingPatient = ref<Patient | null>(null);
+const isSaving = ref(false);
+const formError = ref('');
 
 const formData = ref({
   nombres: '',
@@ -20,7 +23,7 @@ const formData = ref({
   direccion: '',
   fechaInicio: new Date().toISOString().slice(0, 10),
   observaciones: '',
-  photoUrl: 'https://images.unsplash.com/photo-1543332164-6e82f355badc?auto=format&fit=crop&w=256&q=80',
+  photoUrl: '',
 });
 
 const handleOpenAdd = () => {
@@ -33,7 +36,7 @@ const handleOpenAdd = () => {
     direccion: '',
     fechaInicio: new Date().toISOString().slice(0, 10),
     observaciones: '',
-    photoUrl: 'https://images.unsplash.com/photo-1543332164-6e82f355badc?auto=format&fit=crop&w=256&q=80',
+    photoUrl: '',
   };
   editingPatient.value = null;
   showAddModal.value = true;
@@ -57,9 +60,11 @@ const handleOpenEdit = (p: Patient) => {
 
 const handleSubmit = async () => {
   if (!formData.value.nombres.trim() || !formData.value.apellidos.trim()) return;
-
-  if (editingPatient.value) {
-    store.updatePatient(editingPatient.value.id, {
+  formError.value = '';
+  isSaving.value = true;
+  try {
+    if (editingPatient.value) {
+      await store.updatePatient(editingPatient.value.id, {
       nombres: formData.value.nombres.trim(),
       apellidos: formData.value.apellidos.trim(),
       fechaNacimiento: formData.value.fechaNacimiento,
@@ -69,9 +74,9 @@ const handleSubmit = async () => {
       fechaInicio: formData.value.fechaInicio,
       observaciones: formData.value.observaciones.trim(),
       photoUrl: formData.value.photoUrl,
-    });
-  } else {
-    const created = await store.addPatient({
+      });
+    } else {
+      const created = await store.addPatient({
       nombres: formData.value.nombres.trim(),
       apellidos: formData.value.apellidos.trim(),
       fechaNacimiento: formData.value.fechaNacimiento,
@@ -82,18 +87,22 @@ const handleSubmit = async () => {
       observaciones: formData.value.observaciones.trim(),
       photoUrl: formData.value.photoUrl,
       estado: 'ACTIVO',
-    });
-    store.setSelectedPatientId(created.id);
+      });
+      store.setSelectedPatientId(created.id);
+    }
+    showAddModal.value = false;
+  } catch (err: any) {
+    formError.value = err?.message || 'No se pudieron guardar los datos del paciente.';
+  } finally {
+    isSaving.value = false;
   }
-
-  showAddModal.value = false;
 };
 
 const filteredPatients = computed(() => {
   return store.patients
     .filter((p) => (statusFilter.value === 'TODOS' ? true : p.estado === statusFilter.value))
     .filter((p) => {
-      const query = searchTerm.value.toLowerCase();
+      const query = (searchTerm.value || store.globalSearchTerm).toLowerCase();
       return (
         p.nombres.toLowerCase().includes(query) ||
         p.apellidos.toLowerCase().includes(query) ||
@@ -182,7 +191,7 @@ const filteredPatients = computed(() => {
               <td class="py-3.5 px-4">
                 <div class="flex items-center gap-3">
                   <img
-                    :src="patient.photoUrl"
+                    :src="patient.photoUrl || 'https://images.unsplash.com/photo-1543332164-6e82f355badc?auto=format&fit=crop&w=256&q=80'"
                     :alt="patient.nombres"
                     class="w-10 h-10 rounded-xl object-cover ring-1 ring-[#bcc9c6]"
                   />
@@ -303,6 +312,8 @@ const filteredPatients = computed(() => {
         </div>
 
         <form @submit.prevent="handleSubmit" class="space-y-4 text-xs">
+          <div v-if="formError" role="alert" class="p-3 rounded-xl bg-[#ffdad2] text-[#731a04]">{{ formError }}</div>
+          <ImageUploadField v-model="formData.photoUrl" label="Fotografía del paciente" :alt="formData.nombres || 'Paciente'" />
           <div class="grid grid-cols-2 gap-3">
             <div>
               <label class="block font-bold text-[#1d1c16] mb-1">Nombres *</label>
@@ -380,15 +391,6 @@ const filteredPatients = computed(() => {
           </div>
 
           <div>
-            <label class="block font-bold text-[#1d1c16] mb-1">URL Fotografía</label>
-            <input
-              type="url"
-              v-model="formData.photoUrl"
-              class="w-full px-3 py-2 rounded-xl border border-[#bcc9c6] text-xs focus:ring-1 focus:ring-[#00685d]"
-            />
-          </div>
-
-          <div>
             <label class="block font-bold text-[#1d1c16] mb-1">
               Observaciones Administrativas / Diagnóstico Inicial
             </label>
@@ -410,9 +412,10 @@ const filteredPatients = computed(() => {
             </button>
             <button
               type="submit"
+              :disabled="isSaving"
               class="px-5 py-2 bg-[#00685d] hover:bg-[#008376] text-white rounded-xl text-xs font-bold shadow-xs"
             >
-              {{ editingPatient ? 'Guardar Cambios' : 'Registrar Paciente' }}
+              {{ isSaving ? 'Guardando…' : editingPatient ? 'Guardar Cambios' : 'Registrar Paciente' }}
             </button>
           </div>
         </form>

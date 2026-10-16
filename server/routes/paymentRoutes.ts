@@ -20,7 +20,7 @@ paymentRouter.get('/', (req, res: Response) => {
 
 // GET /api/pagos/:id
 paymentRouter.get('/:id', (req, res: Response) => {
-  const p = Repository.getPaymentById(req.params.id);
+  const p = Repository.getPaymentById(String(req.params.id));
   if (!p) return res.status(404).json({ success: false, message: 'Comprobante de pago no encontrado' });
   return res.status(200).json({ success: true, data: p });
 });
@@ -83,7 +83,7 @@ paymentRouter.patch('/:id/anular', requireRole(['ADMIN', 'RECEPCION']), async (r
       });
     }
 
-    const payment = await Repository.annulPayment(req.params.id, motivoAnulacion, {
+    const payment = await Repository.annulPayment(String(req.params.id), motivoAnulacion, {
       id: req.user!.id,
       nombre: req.user!.nombre,
       rol: req.user!.rol,

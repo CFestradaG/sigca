@@ -3,7 +3,7 @@
 
 > **Centro Armonía**: Especialistas en Psicología Infantil, Neurodesarrollo y Estimulación Auditivo-Verbal (EAV) en Ciudad de Guatemala.
 
-> **Estado de revisión (2026-10-16):** hay dos implementaciones de API. La integración no está lista para uso real: las respuestas del API elegido no coinciden con el store Vue, el login actual no acepta esa respuesta y el entorno Vite no redirige `/api` al backend. Las matrices y capacidades listadas abajo describen funcionalidades del código legado, no una validación end-to-end del Compose activo.
+> **Estado de revisión (2026-10-16):** el flujo predeterminado usa `server.ts`, Express, Vite y las rutas de `server/`. `backend/` es otra API parcial y no se inicia con los comandos principales. La integración corregida todavía debe validarse end-to-end con MongoDB.
 
 ---
 
@@ -29,11 +29,12 @@
 
 ### Estado técnico actual
 
-- El frontend está en la raíz y `npm run dev` solo inicia Vite.
-- El backend legado integrado está en `server.ts` y `server/`; el API modular más reciente está en `backend/` y por ahora cubre autenticación, usuarios y servicios. Son contratos distintos y no deben tratarse como un único backend.
-- `src/stores/appStore.ts` consume rutas relativas `/api/...`, pero `vite.config.ts` no configura proxy. Además, el store espera respuestas `{ success, data }` y nombres de campos distintos a los que devuelve `backend/`.
-- El guard de Vue carga un ADMIN de demostración cuando no hay usuario guardado; no usar datos reales hasta corregir y validar el flujo de login.
-- Existen `compose.yaml` y `docker-compose.yml`. Docker Compose advierte que hay configuraciones duplicadas; el segundo archivo contiene credenciales fijas y Mongo sin autenticación. Usa solo el Compose elegido y no publiques el legado.
+- `npm run dev` inicia el backend integrado y Vite en el mismo origen.
+- El backend carga sus colecciones desde MongoDB al arrancar; MongoDB y una `JWT_SECRET` de 32 caracteres o más son obligatorios.
+- El login usa el contrato del backend integrado, restaura sesión con `/api/auth/me` y no asigna un rol ficticio.
+- En **Programar Cita** se puede seleccionar un paciente existente o registrar uno nuevo; para menores, el formulario pide y asocia los datos requeridos del responsable antes de guardar.
+- Si al consultar disponibilidad aparece `Cita no encontrada`, reinicia el backend con `npm run dev` para que cargue la ruta `/api/citas/disponibilidad`. Si ejecutas Docker, reconstruye el servicio de la aplicación.
+- Ambos archivos Compose apuntan a la aplicación integrada. Mongo no tiene autenticación. El build de la imagen aún no se valida: `npm ci` dentro de Docker falla en este entorno; el build local pasa.
 
 ---
 
@@ -48,7 +49,7 @@
 | **PROFESIONAL (Psicología)** | `evalencia@centroarmonia.com.gt` | `Profe123!` | Agenda de psicología infantil y neurodesarrollo. |
 | **PROFESIONAL (Lenguaje)**| `mramirez@centroarmonia.com.gt` | `Profe123!` | Agenda de terapia del lenguaje y articulación. |
 
-Estas credenciales son datos de demostración del backend legado; no son cuentas configuradas en el bootstrap del API modular ni deben usarse en despliegues.
+Estas credenciales provienen de las fixtures de demostración en `server/data/initialData.ts`. No deben usarse en despliegues.
 
 ---
 
@@ -65,7 +66,7 @@ Copie el archivo de ejemplo:
 cp .env.example .env
 openssl rand -hex 32
 ```
-Usa la salida de `openssl` como `JWT_SECRET` en `.env`; no reutilices una clave fija del README ni publiques `.env`.
+Usa la salida de `openssl` como `JWT_SECRET` en `.env`. Para ejecutar sin Compose, inicia MongoDB accesible mediante `MONGODB_URI`. No publiques `.env`.
 
 ### 3. Instalación de Dependencias
 ```bash
@@ -76,17 +77,17 @@ npm install
 ```bash
 npm run dev
 ```
-El frontend estará disponible en `http://localhost:3000`. Este comando inicia Vite, no el servidor legado `server.ts`.
+La aplicación estará disponible en `http://localhost:3000`. El servidor requiere MongoDB y una `JWT_SECRET` válida.
 
 ### 5. Scripts de datos y pruebas
 
-El `package.json` actual no define los scripts `seed` ni `test` que aparecen en la versión original de esta guía. `scripts/test-api.ts` y `scripts/seed.ts` existen, pero no están conectados a comandos npm. **No ejecutes `scripts/seed.ts` sobre una base con datos que quieras conservar:** elimina todos los documentos de sus colecciones antes de insertar las fixtures.
+`npm run seed` inserta fixtures solo en colecciones vacías. Para reiniciar los datos explícitamente, define `SEED_RESET=true`; eso elimina las colecciones SIGCA. `npm test` ejecuta `scripts/test-api.ts`.
 
 ### 6. Ejecución de Pruebas Automatizadas de Reglas de Negocio
 ```bash
 npm test
 ```
-Este comando actualmente falla porque no existe el script `test` en `package.json`. La cobertura de reglas descrita más abajo debe considerarse pendiente de ejecución hasta registrar y correr esa suite.
+La cobertura de reglas sigue pendiente de validación end-to-end con MongoDB.
 
 ---
 
@@ -95,56 +96,55 @@ Este comando actualmente falla porque no existe el script `test` en `package.jso
 Para levantar tanto el servicio de MongoDB como la aplicación compilada con un solo comando:
 
 ```bash
-# Elige explícitamente una configuración; ambas Compose del repo son diferentes.
-docker compose -f compose.yaml up --build -d
+docker compose up --build -d
 
 # Ver registros en tiempo real
-docker compose -f compose.yaml logs -f
+docker compose logs -f
 
 # Detener contenedores
-docker compose -f compose.yaml down
+docker compose down
 ```
 
-`compose.yaml` define MongoDB y el API modular de `backend/`; el frontend Vite no está incluido. El `docker-compose.yml` legado usa otro Dockerfile, Mongo sin autenticación y un JWT fijo. No lo uses para despliegue. En este Codespace se observó que el tráfico TCP entre contenedores no funciona; la imagen del Compose legado también carece de dependencias runtime del API después de separar los manifiestos.
+El Compose está configurado para levantar MongoDB y la aplicación integrada. En esta revisión, `npm ci` dentro del build de Docker falla con `Exit handler never called!`, así que no se confirmó el arranque por Compose. El build local de frontend y backend sí pasa. Mongo no usa autenticación; esta configuración es para desarrollo/demo local.
 
 ---
 
 ## 📋 Matriz de Cumplimiento Declarado de Reglas de Negocio (RN-01 a RN-30)
 
-Las marcas siguientes reflejan capacidades declaradas en el backend legado (`server/`), no pruebas de que el frontend, `backend/` modular y Compose estén integrados entre sí. La aceptación requiere pruebas end-to-end contra la configuración Docker que se vaya a entregar.
+La tabla describe validaciones que aparecen en el código del backend integrado. Ninguna marca equivale a una prueba end-to-end; el cumplimiento requiere verificar el flujo con MongoDB y las vistas.
 
 | Código | Regla de Negocio | Implementación en Backend | Estado |
 |---|---|---|---|
-| **RN-01** | No citas traslapadas para el mismo profesional | Validación de intervalo `[horaInicio, horaFin)` en `validateAppointmentRules()` | ✅ Implementado |
-| **RN-02** | Respetar horarios de atención configurados | Validación contra colección `horarios` según el día de la semana | ✅ Implementado |
-| **RN-03** | Paciente, servicio y profesional deben estar activos | Comprobación de estado `activo / ACTIVO` de las 3 entidades | ✅ Implementado |
-| **RN-04** | Menores de 18 años requieren responsable antes de agendar | Cálculo de edad con fecha de nacimiento; exige `responsableIds.length > 0` | ✅ Implementado |
-| **RN-05** | Citas CANCELADAS no pueden pasar a COMPLETADA | Validación de máquina de estados en `changeAppointmentStatus()` | ✅ Implementado |
-| **RN-06** | Citas COMPLETADAS no pueden reprogramarse | Bloqueo de mutación de fecha/hora en citas en estado COMPLETADA | ✅ Implementado |
-| **RN-07** | Servicios inactivos no pueden seleccionarse | Filtro y validación de estado del servicio antes de crear cita | ✅ Implementado |
-| **RN-08** | Usuarios inactivos no pueden iniciar sesión | Rechazo en endpoint `POST /api/auth/login` con código HTTP 403 | ✅ Implementado |
-| **RN-09** | Materiales solo a pacientes activos | Validación de estado activo en `POST /api/materiales/:id/asignar` | ✅ Implementado |
-| **RN-10** | Operaciones privadas requieren autenticación/autorización | Middlewares `authenticateToken` y `requireRole` en Express | ✅ Implementado |
-| **RN-11** | No citas en fechas u horas pasadas | Verificación de fecha y hora actual al programar | ✅ Implementado |
-| **RN-12** | Hora de fin calculada con duración del servicio | `horaFin = horaInicio + duracionMinutos` | ✅ Implementado |
-| **RN-13** | CANCELADAS y COMPLETADAS no bloquean horarios futuros | Exclusión de citas canceladas y completadas en verificación de traslape | ✅ Implementado |
-| **RN-14** | Pacientes inactivos no pueden recibir nuevas citas | Validación de `paciente.estado === 'ACTIVO'` | ✅ Implementado |
-| **RN-15** | Pagos asociados a citas existentes | Validación de existencia de `citaId` | ✅ Implementado |
-| **RN-16** | Monto de pago > 0 | Validación estricta `montoQ > 0` | ✅ Implementado |
-| **RN-17** | Total pagado no supera precio de la cita | Control `totalPagado + montoQ <= precioQ` | ✅ Implementado |
-| **RN-18** | Saldo pendiente calculado automáticamente | `saldo = roundQ(precioQ - totalPagosValidos)` | ✅ Implementado |
-| **RN-19** | Pagos anulados no cuentan en saldo ni ingresos | Exclusión de pagos con `estado === 'ANULADO'` en cálculos | ✅ Implementado |
-| **RN-20** | Pagos vinculados a caja abierta del usuario | Asociación obligatoria a caja con `estado === 'ABIERTA'` | ✅ Implementado |
-| **RN-21** | No pagos en cajas cerradas | Rechazo de transacciones sobre cajas cerradas | ✅ Implementado |
-| **RN-22** | Una sola caja abierta por usuario | Restricción en `POST /api/cajas/abrir` | ✅ Implementado |
-| **RN-23** | Cierre calcula totales por método y esperado | Sumatorias por EFECTIVO, TRANSFERENCIA, TARJETA y total | ✅ Implementado |
-| **RN-24** | Historial de movimientos conservado | Registro inmutable de ingresos y egresos en la caja | ✅ Implementado |
-| **RN-25** | Solo usuarios autorizados registran pagos y cierran caja | RBAC verificado en endpoints financieros | ✅ Implementado |
-| **RN-26** | Pagos no se eliminan físicamente | `DELETE /api/pagos/:id` bloqueado con HTTP 405 | ✅ Implementado |
-| **RN-27** | Cita con pagos válidos no puede cancelarse | Exige anular pagos primero en caja abierta antes de cancelar | ✅ Implementado |
-| **RN-28** | Precisión monetaria de dos decimales | Estrategia de centavos enteros con función `roundQ()` | ✅ Implementado |
-| **RN-29** | Auditoría de fecha y usuario en pagos/anulaciones | Registro de `usuarioId`, `atendidoPor`, `anuladoPor` y timestamps | ✅ Implementado |
-| **RN-30** | Validación de datos y códigos HTTP apropiados | 200 OK, 201 Created, 400 Bad Request, 401 Unauthorized, 403 Forbidden, 404 Not Found, 409 Conflict | ✅ Implementado |
+| **RN-01** | No citas traslapadas para el mismo profesional | Validación de intervalo `[horaInicio, horaFin)` en `validateAppointmentRules()` | En código; pendiente de validación end-to-end |
+| **RN-02** | Respetar horarios de atención configurados | Validación contra colección `horarios` según el día de la semana | En código; pendiente de validación end-to-end |
+| **RN-03** | Paciente, servicio y profesional deben estar activos | Comprobación de estado `activo / ACTIVO` de las 3 entidades | En código; pendiente de validación end-to-end |
+| **RN-04** | Menores de 18 años requieren responsable antes de agendar | Cálculo de edad con fecha de nacimiento; exige `responsableIds.length > 0` | En código; pendiente de validación end-to-end |
+| **RN-05** | Citas CANCELADAS no pueden pasar a COMPLETADA | Validación de máquina de estados en `changeAppointmentStatus()` | En código; pendiente de validación end-to-end |
+| **RN-06** | Citas COMPLETADAS no pueden reprogramarse | Bloqueo de mutación de fecha/hora en citas en estado COMPLETADA | En código; pendiente de validación end-to-end |
+| **RN-07** | Servicios inactivos no pueden seleccionarse | Filtro y validación de estado del servicio antes de crear cita | En código; pendiente de validación end-to-end |
+| **RN-08** | Usuarios inactivos no pueden iniciar sesión | Rechazo en endpoint `POST /api/auth/login` con código HTTP 403 | En código; pendiente de validación end-to-end |
+| **RN-09** | Materiales solo a pacientes activos | Validación de estado activo en `POST /api/materiales/:id/asignar` | En código; pendiente de validación end-to-end |
+| **RN-10** | Operaciones privadas requieren autenticación/autorización | Middlewares `authenticateToken` y `requireRole` en Express | En código; pendiente de validación end-to-end |
+| **RN-11** | No citas en fechas u horas pasadas | Verificación de fecha y hora actual al programar | En código; pendiente de validación end-to-end |
+| **RN-12** | Hora de fin calculada con duración del servicio | `horaFin = horaInicio + duracionMinutos` | En código; pendiente de validación end-to-end |
+| **RN-13** | CANCELADAS y COMPLETADAS no bloquean horarios futuros | Exclusión de citas canceladas y completadas en verificación de traslape | En código; pendiente de validación end-to-end |
+| **RN-14** | Pacientes inactivos no pueden recibir nuevas citas | Validación de `paciente.estado === 'ACTIVO'` | En código; pendiente de validación end-to-end |
+| **RN-15** | Pagos asociados a citas existentes | Validación de existencia de `citaId` | En código; pendiente de validación end-to-end |
+| **RN-16** | Monto de pago > 0 | Validación estricta `montoQ > 0` | En código; pendiente de validación end-to-end |
+| **RN-17** | Total pagado no supera precio de la cita | Control `totalPagado + montoQ <= precioQ` | En código; pendiente de validación end-to-end |
+| **RN-18** | Saldo pendiente calculado automáticamente | `saldo = roundQ(precioQ - totalPagosValidos)` | En código; pendiente de validación end-to-end |
+| **RN-19** | Pagos anulados no cuentan en saldo ni ingresos | Exclusión de pagos con `estado === 'ANULADO'` en cálculos | En código; pendiente de validación end-to-end |
+| **RN-20** | Pagos vinculados a caja abierta del usuario | Asociación obligatoria a caja con `estado === 'ABIERTA'` | En código; pendiente de validación end-to-end |
+| **RN-21** | No pagos en cajas cerradas | Rechazo de transacciones sobre cajas cerradas | En código; pendiente de validación end-to-end |
+| **RN-22** | Una sola caja abierta por usuario | Restricción en `POST /api/cajas/abrir` | En código; pendiente de validación end-to-end |
+| **RN-23** | Cierre calcula totales por método y esperado | Sumatorias por EFECTIVO, TRANSFERENCIA, TARJETA y total | En código; pendiente de validación end-to-end |
+| **RN-24** | Historial de movimientos conservado | Registro inmutable de ingresos y egresos en la caja | En código; pendiente de validación end-to-end |
+| **RN-25** | Solo usuarios autorizados registran pagos y cierran caja | RBAC verificado en endpoints financieros | En código; pendiente de validación end-to-end |
+| **RN-26** | Pagos no se eliminan físicamente | `DELETE /api/pagos/:id` bloqueado con HTTP 405 | En código; pendiente de validación end-to-end |
+| **RN-27** | Cita con pagos válidos no puede cancelarse | Exige anular pagos primero en caja abierta antes de cancelar | En código; pendiente de validación end-to-end |
+| **RN-28** | Precisión monetaria de dos decimales | Estrategia de centavos enteros con función `roundQ()` | En código; pendiente de validación end-to-end |
+| **RN-29** | Auditoría de fecha y usuario en pagos/anulaciones | Registro de `usuarioId`, `atendidoPor`, `anuladoPor` y timestamps | En código; pendiente de validación end-to-end |
+| **RN-30** | Validación de datos y códigos HTTP apropiados | 200 OK, 201 Created, 400 Bad Request, 401 Unauthorized, 403 Forbidden, 404 Not Found, 409 Conflict | En código; pendiente de validación end-to-end |
 
 ---
 
@@ -160,9 +160,9 @@ El archivo `SIGCA-Centro-Armonia.postman_collection.json` se encuentra en la ra�
 ## 🧪 Procedimiento de Evaluación Funcional (Sección 16)
 
 Para demostrar el sistema frente al docente:
-> **Bloqueo actual:** no tomar esta secuencia como validada todavía. El login Vue espera un contrato distinto al API modular; además, el Compose legado no incluye dependencias runtime del servidor.
+> **Pendiente de validación end-to-end:** la inspección de código no sustituye correr la secuencia con MongoDB.
 
-1. **Iniciar sesión como Administrador**: primero debe corregirse y validar el flujo de login Vue/API; hoy no es demostrable con el Compose modular.
+1. **Iniciar sesión como Administrador**: usar las credenciales de demostración después de iniciar la aplicación integrada con MongoDB.
 2. **Registrar un paciente**: Ir a *Pacientes* y crear un nuevo registro.
 3. **Asociar un responsable**: Asignar un tutor legal o padre de familia.
 4. **Crear un servicio con precio**: En *Servicios*, registrar una nueva especialidad (ej. Estimulación Sensorial, Q350).

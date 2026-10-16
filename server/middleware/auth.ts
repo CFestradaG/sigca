@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 
-export const JWT_SECRET = process.env.JWT_SECRET || 'sigca_centro_armonia_secret_key_2026_udg';
+export const JWT_SECRET = process.env.JWT_SECRET || '';
 
 export interface AuthUser {
   id: string;

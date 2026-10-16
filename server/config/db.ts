@@ -8,18 +8,17 @@ export async function connectDB(): Promise<boolean> {
   if (isConnected) return true;
 
   try {
-    // Attempt connection with 3-second timeout so app boot is immediate if Mongo isn't running locally
     await mongoose.connect(MONGODB_URI, {
-      serverSelectionTimeoutMS: 3000,
-      connectTimeoutMS: 3000,
+      serverSelectionTimeoutMS: 10000,
+      connectTimeoutMS: 10000,
     });
     isConnected = true;
-    console.log(`[Database] MongoDB connected successfully to ${MONGODB_URI}`);
+    console.log('[Database] MongoDB connected successfully');
     return true;
   } catch (error) {
-    console.warn(`[Database] MongoDB not reachable at ${MONGODB_URI}. Running in resilient memory-store mode.`);
+    console.error('[Database] MongoDB connection failed. SIGCA cannot start without persistent storage.', error);
     isConnected = false;
-    return false;
+    throw error;
   }
 }
 

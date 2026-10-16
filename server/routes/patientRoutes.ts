@@ -4,6 +4,15 @@ import { authenticateToken } from '../middleware/auth';
 
 export const patientRouter = Router();
 
+function validatePhoto(photoUrl: unknown) {
+  if (!photoUrl) return '';
+  const value = String(photoUrl);
+  if (value.length > 850_000 || !/^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(value)) {
+    throw new Error('La fotografía debe ser JPG, PNG o WebP y no superar 600 KB.');
+  }
+  return value;
+}
+
 patientRouter.use(authenticateToken);
 
 // GET /api/pacientes
@@ -18,14 +27,14 @@ patientRouter.get('/', (req, res: Response) => {
 
 // GET /api/pacientes/:id
 patientRouter.get('/:id', (req, res: Response) => {
-  const patient = Repository.getPatientById(req.params.id);
+  const patient = Repository.getPatientById(String(req.params.id));
   if (!patient) {
     return res.status(404).json({ success: false, message: 'Paciente no encontrado' });
   }
 
   // Also include appointments and payments history (RF-03)
-  const citas = Repository.getAppointments({ pacienteId: req.params.id });
-  const pagos = Repository.getPayments({ pacienteId: req.params.id });
+  const citas = Repository.getAppointments({ pacienteId: String(req.params.id) });
+  const pagos = Repository.getPayments({ pacienteId: String(req.params.id) });
 
   return res.status(200).json({
     success: true,
@@ -58,7 +67,7 @@ patientRouter.post('/', async (req, res: Response) => {
       direccion: direccion || '',
       fechaInicio: fechaInicio || new Date().toISOString().split('T')[0],
       observaciones: observaciones || '',
-      fotoUrl: fotoUrl || '',
+      fotoUrl: validatePhoto(fotoUrl),
       estado: 'ACTIVO',
       responsableIds: responsableIds || [],
     });
@@ -76,7 +85,10 @@ patientRouter.post('/', async (req, res: Response) => {
 // PUT /api/pacientes/:id
 patientRouter.put('/:id', async (req, res: Response) => {
   try {
-    const updated = await Repository.updatePatient(req.params.id, req.body);
+    const updated = await Repository.updatePatient(String(req.params.id), {
+      ...req.body,
+      ...(req.body?.fotoUrl !== undefined ? { fotoUrl: validatePhoto(req.body.fotoUrl) } : {}),
+    });
     if (!updated) {
       return res.status(404).json({ success: false, message: 'Paciente no encontrado' });
     }
@@ -98,7 +110,7 @@ patientRouter.patch('/:id/estado', async (req, res: Response) => {
       return res.status(400).json({ success: false, message: 'Estado debe ser ACTIVO o INACTIVO' });
     }
 
-    const updated = await Repository.updatePatient(req.params.id, { estado });
+    const updated = await Repository.updatePatient(String(req.params.id), { estado });
     if (!updated) {
       return res.status(404).json({ success: false, message: 'Paciente no encontrado' });
     }
@@ -115,12 +127,12 @@ patientRouter.patch('/:id/estado', async (req, res: Response) => {
 
 // GET /api/pacientes/:id/citas
 patientRouter.get('/:id/citas', (req, res: Response) => {
-  const citas = Repository.getAppointments({ pacienteId: req.params.id });
+  const citas = Repository.getAppointments({ pacienteId: String(req.params.id) });
   return res.status(200).json({ success: true, count: citas.length, data: citas });
 });
 
 // GET /api/pacientes/:id/pagos
 patientRouter.get('/:id/pagos', (req, res: Response) => {
-  const pagos = Repository.getPayments({ pacienteId: req.params.id });
+  const pagos = Repository.getPayments({ pacienteId: String(req.params.id) });
   return res.status(200).json({ success: true, count: pagos.length, data: pagos });
 });

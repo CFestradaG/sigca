@@ -4,11 +4,15 @@ import { useAppStore } from '../../stores/appStore';
 import { EducationalMaterial } from '../../types';
 
 const store = useAppStore();
+const canManageMaterials = computed(() => store.currentUser?.role === 'ADMIN');
+const canAssignMaterials = computed(() => ['ADMIN', 'PROFESIONAL'].includes(store.currentUser?.role || ''));
 
 const typeFilter = ref<string>('TODOS');
 const showAddModal = ref(false);
 const editingMaterial = ref<EducationalMaterial | null>(null);
 const managingAssignmentsMaterial = ref<EducationalMaterial | null>(null);
+const isSaving = ref(false);
+const errorMessage = ref('');
 
 const form = ref({
   titulo: '',
@@ -19,6 +23,7 @@ const form = ref({
 });
 
 const handleOpenAdd = () => {
+  errorMessage.value = '';
   editingMaterial.value = null;
   form.value = {
     titulo: '',
@@ -31,6 +36,7 @@ const handleOpenAdd = () => {
 };
 
 const handleOpenEdit = (m: EducationalMaterial) => {
+  errorMessage.value = '';
   editingMaterial.value = m;
   form.value = {
     titulo: m.titulo,
@@ -42,35 +48,48 @@ const handleOpenEdit = (m: EducationalMaterial) => {
   showAddModal.value = true;
 };
 
-const handleSubmit = () => {
-  if (!form.value.titulo.trim()) return;
-
-  if (editingMaterial.value) {
-    store.updateMaterial(editingMaterial.value.id, {
+const handleSubmit = async () => {
+  errorMessage.value = '';
+  isSaving.value = true;
+  try {
+    const data = {
       titulo: form.value.titulo.trim(),
       descripcion: form.value.descripcion.trim(),
       tipo: form.value.tipo,
       enlaceRecurso: form.value.enlaceRecurso.trim(),
       estado: form.value.estado,
-    });
-  } else {
-    store.addMaterial({
-      titulo: form.value.titulo.trim(),
-      descripcion: form.value.descripcion.trim(),
-      tipo: form.value.tipo,
-      enlaceRecurso: form.value.enlaceRecurso.trim(),
-      estado: form.value.estado,
-      assignedPatientIds: [],
-    });
+    };
+    if (editingMaterial.value) {
+      await store.updateMaterial(editingMaterial.value.id, data);
+    } else {
+      await store.addMaterial({ ...data, assignedPatientIds: [] });
+    }
+    showAddModal.value = false;
+  } catch (error: any) {
+    errorMessage.value = error?.message || 'No se pudo guardar el material.';
+  } finally {
+    isSaving.value = false;
   }
-
-  showAddModal.value = false;
 };
 
-const toggleStatus = (m: EducationalMaterial) => {
-  store.updateMaterial(m.id, {
-    estado: m.estado === 'ACTIVO' ? 'INACTIVO' : 'ACTIVO',
-  });
+const toggleStatus = async (m: EducationalMaterial) => {
+  errorMessage.value = '';
+  try {
+    await store.updateMaterial(m.id, { estado: m.estado === 'ACTIVO' ? 'INACTIVO' : 'ACTIVO' });
+  } catch (error: any) {
+    errorMessage.value = error?.message || 'No se pudo cambiar el estado del material.';
+  }
+};
+
+const setPatientAssignment = async (materialId: string, patientId: string, assign: boolean) => {
+  errorMessage.value = '';
+  try {
+    if (assign) await store.assignMaterialToPatient(materialId, patientId);
+    else await store.removeMaterialFromPatient(materialId, patientId);
+    managingAssignmentsMaterial.value = store.materials.find((m) => m.id === materialId) || null;
+  } catch (error: any) {
+    errorMessage.value = error?.message || 'No se pudo actualizar la asignación.';
+  }
 };
 
 const filteredMaterials = computed(() => {
@@ -82,6 +101,7 @@ const filteredMaterials = computed(() => {
 
 <template>
   <div class="space-y-6">
+    <div v-if="errorMessage" role="alert" class="p-3 rounded-xl bg-[#ffdad2] text-[#731a04] text-xs">{{ errorMessage }}</div>
     <!-- Header -->
     <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
       <div>
@@ -94,6 +114,7 @@ const filteredMaterials = computed(() => {
       </div>
 
       <button
+        v-if="canManageMaterials"
         @click="handleOpenAdd"
         class="px-4 py-2.5 bg-[#00685d] hover:bg-[#008376] text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-xs transition-colors cursor-pointer self-start sm:self-auto"
       >
@@ -128,6 +149,7 @@ const filteredMaterials = computed(() => {
               {{ mat.tipo }}
             </span>
             <button
+              v-if="canManageMaterials"
               @click="toggleStatus(mat)"
               class="text-[10px] font-bold px-2 py-0.5 rounded-full cursor-pointer"
               :class="mat.estado === 'ACTIVO' ? 'bg-[#00685d]/10 text-[#00685d]' : 'bg-[#ffdad6] text-[#ba1a1a]'"
@@ -150,6 +172,7 @@ const filteredMaterials = computed(() => {
                 Asignado a ({{ store.patients.filter((p) => mat.assignedPatientIds.includes(p.id)).length }}):
               </span>
               <button
+                v-if="canAssignMaterials"
                 @click="managingAssignmentsMaterial = mat"
                 class="text-[11px] font-bold text-[#00685d] hover:underline cursor-pointer"
               >
@@ -186,6 +209,7 @@ const filteredMaterials = computed(() => {
           <span v-else class="text-[#6d7a77] text-[11px]">Enlace no provisto</span>
 
           <button
+            v-if="canManageMaterials"
             @click="handleOpenEdit(mat)"
             class="px-2.5 py-1 bg-[#f8f3ea] hover:bg-[#ece8df] text-[#00685d] rounded-lg font-bold border border-[#bcc9c6] cursor-pointer"
           >
@@ -244,6 +268,7 @@ const filteredMaterials = computed(() => {
             <label class="block font-bold text-[#1d1c16] mb-1">Enlace al Recurso (URL / PDF / Audio)</label>
             <input
               type="url"
+              required
               placeholder="https://..."
               v-model="form.enlaceRecurso"
               class="w-full px-3 py-2 rounded-xl border border-[#bcc9c6] text-xs"
@@ -296,14 +321,14 @@ const filteredMaterials = computed(() => {
             </div>
             <button
               v-if="managingAssignmentsMaterial.assignedPatientIds.includes(p.id)"
-              @click="store.removeMaterialFromPatient(managingAssignmentsMaterial.id, p.id)"
+              @click="setPatientAssignment(managingAssignmentsMaterial.id, p.id, false)"
               class="px-2.5 py-1 bg-[#ffdad6] text-[#ba1a1a] rounded-lg text-xs font-bold cursor-pointer"
             >
               Quitar
             </button>
             <button
               v-else
-              @click="store.assignMaterialToPatient(managingAssignmentsMaterial.id, p.id)"
+              @click="setPatientAssignment(managingAssignmentsMaterial.id, p.id, true)"
               class="px-2.5 py-1 bg-[#00685d] text-white rounded-lg text-xs font-bold cursor-pointer"
             >
               Asignar

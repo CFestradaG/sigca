@@ -3,6 +3,7 @@ import { ref, computed } from 'vue';
 import { useRouter } from 'vue-router';
 import { useAppStore } from '../../stores/appStore';
 import { Guardian } from '../../types';
+import ImageUploadField from '../../components/shared/ImageUploadField.vue';
 
 const store = useAppStore();
 const router = useRouter();
@@ -10,6 +11,8 @@ const router = useRouter();
 const searchTerm = ref('');
 const showModal = ref(false);
 const editingGuardian = ref<Guardian | null>(null);
+const isSaving = ref(false);
+const formError = ref('');
 
 const form = ref({
   nombres: '',
@@ -18,7 +21,7 @@ const form = ref({
   telefono: '',
   email: '',
   direccion: '',
-  photoUrl: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?auto=format&fit=crop&w=256&q=80',
+  photoUrl: '',
   selectedPatientIds: [] as string[],
 });
 
@@ -31,7 +34,7 @@ const handleOpenAdd = () => {
     telefono: '',
     email: '',
     direccion: '',
-    photoUrl: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?auto=format&fit=crop&w=256&q=80',
+    photoUrl: '',
     selectedPatientIds: [],
   };
   showModal.value = true;
@@ -52,11 +55,13 @@ const handleOpenEdit = (g: Guardian) => {
   showModal.value = true;
 };
 
-const handleSubmit = () => {
+const handleSubmit = async () => {
   if (!form.value.nombres.trim() || !form.value.telefono.trim()) return;
-
-  if (editingGuardian.value) {
-    store.updateGuardian(editingGuardian.value.id, {
+  formError.value = '';
+  isSaving.value = true;
+  try {
+    if (editingGuardian.value) {
+      await store.updateGuardian(editingGuardian.value.id, {
       nombres: form.value.nombres.trim(),
       apellidos: form.value.apellidos.trim(),
       parentesco: form.value.parentesco,
@@ -65,9 +70,9 @@ const handleSubmit = () => {
       direccion: form.value.direccion.trim(),
       photoUrl: form.value.photoUrl,
       patientIds: form.value.selectedPatientIds,
-    });
-  } else {
-    store.addGuardian({
+      });
+    } else {
+      await store.addGuardian({
       nombres: form.value.nombres.trim(),
       apellidos: form.value.apellidos.trim(),
       parentesco: form.value.parentesco,
@@ -76,10 +81,14 @@ const handleSubmit = () => {
       direccion: form.value.direccion.trim(),
       photoUrl: form.value.photoUrl,
       patientIds: form.value.selectedPatientIds,
-    });
+      });
+    }
+    showModal.value = false;
+  } catch (err: any) {
+    formError.value = err?.message || 'No se pudieron guardar los datos del responsable.';
+  } finally {
+    isSaving.value = false;
   }
-
-  showModal.value = false;
 };
 
 const togglePatientSelection = (pId: string) => {
@@ -159,7 +168,7 @@ const goToPatient = (patientId: string) => {
         <div>
           <div class="flex items-center gap-3">
             <img
-              :src="g.photoUrl"
+              :src="g.photoUrl || 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?auto=format&fit=crop&w=256&q=80'"
               :alt="g.nombres"
               class="w-12 h-12 rounded-xl object-cover ring-1 ring-[#bcc9c6]"
             />
@@ -234,6 +243,8 @@ const goToPatient = (patientId: string) => {
         </div>
 
         <form @submit.prevent="handleSubmit" class="space-y-4 text-xs">
+          <div v-if="formError" role="alert" class="p-3 rounded-xl bg-[#ffdad2] text-[#731a04]">{{ formError }}</div>
+          <ImageUploadField v-model="form.photoUrl" label="Fotografía del responsable" :alt="form.nombres || 'Responsable'" />
           <div class="grid grid-cols-2 gap-3">
             <div>
               <label class="block font-bold text-[#1d1c16] mb-1">Nombres *</label>
@@ -328,20 +339,12 @@ const goToPatient = (patientId: string) => {
           </div>
 
           <div class="pt-3 border-t border-[#ece8df] flex justify-end gap-2">
-            <button
-              type="button"
-              @click="showModal = false"
-              class="px-4 py-2 bg-[#f2ede4] rounded-xl text-xs font-bold"
-            >
-              Cancelar
-            </button>
-            <button
-              type="submit"
-              class="px-5 py-2 bg-[#00685d] text-white rounded-xl text-xs font-bold shadow-xs"
-            >
-              Guardar Responsable
+            <button type="button" @click="showModal = false" class="px-4 py-2 bg-[#f2ede4] rounded-xl text-xs font-bold">Cancelar</button>
+            <button type="submit" :disabled="isSaving" class="px-5 py-2 bg-[#00685d] text-white rounded-xl text-xs font-bold shadow-xs disabled:opacity-60">
+              {{ isSaving ? 'Guardando…' : 'Guardar Responsable' }}
             </button>
           </div>
+
         </form>
       </div>
     </div>

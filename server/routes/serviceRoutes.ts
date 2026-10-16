@@ -13,7 +13,7 @@ serviceRouter.get('/', (req, res: Response) => {
 
 // GET /api/servicios/:id
 serviceRouter.get('/:id', (req, res: Response) => {
-  const s = Repository.getServiceById(req.params.id);
+  const s = Repository.getServiceById(String(req.params.id));
   if (!s) return res.status(404).json({ success: false, message: 'Servicio no encontrado' });
   return res.status(200).json({ success: true, data: s });
 });
@@ -52,7 +52,7 @@ serviceRouter.post('/', authenticateToken, requireRole(['ADMIN']), async (req, r
 // PUT /api/servicios/:id
 serviceRouter.put('/:id', authenticateToken, requireRole(['ADMIN']), async (req, res: Response) => {
   try {
-    const updated = await Repository.updateService(req.params.id, req.body);
+    const updated = await Repository.updateService(String(req.params.id), req.body);
     if (!updated) return res.status(404).json({ success: false, message: 'Servicio no encontrado' });
     return res.status(200).json({
       success: true,
@@ -71,7 +71,7 @@ serviceRouter.patch('/:id/estado', authenticateToken, requireRole(['ADMIN']), as
     if (!['ACTIVO', 'INACTIVO'].includes(estado)) {
       return res.status(400).json({ success: false, message: 'Estado debe ser ACTIVO o INACTIVO' });
     }
-    const updated = await Repository.updateService(req.params.id, { estado });
+    const updated = await Repository.updateService(String(req.params.id), { estado });
     if (!updated) return res.status(404).json({ success: false, message: 'Servicio no encontrado' });
     return res.status(200).json({
       success: true,

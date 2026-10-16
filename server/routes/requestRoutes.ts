@@ -54,7 +54,7 @@ requestRouter.patch('/:id/estado', async (req, res: Response) => {
       return res.status(400).json({ success: false, message: 'Estado debe ser PENDIENTE, ATENDIDA o RECHAZADA' });
     }
 
-    const updated = await Repository.updateRequestStatus(req.params.id, estado, citaGeneradaId);
+    const updated = await Repository.updateRequestStatus(String(req.params.id), estado, citaGeneradaId);
     if (!updated) return res.status(404).json({ success: false, message: 'Solicitud no encontrada' });
 
     return res.status(200).json({
@@ -72,7 +72,7 @@ requestRouter.post('/:id/convertir', async (req, res: Response) => {
   try {
     const { pacienteId, profesionalId, fecha, horaInicio, sede, observaciones } = req.body;
 
-    const reqItem = Repository.getRequests().find((r: any) => r.id === req.params.id);
+    const reqItem = Repository.getRequests().find((r: any) => r.id === String(req.params.id));
     if (!reqItem) return res.status(404).json({ success: false, message: 'Solicitud no encontrada' });
 
     const newApp = await Repository.createAppointment({
@@ -85,7 +85,7 @@ requestRouter.post('/:id/convertir', async (req, res: Response) => {
       observaciones: observaciones || `Generada desde solicitud pública: ${reqItem.solicitanteNombre}`,
     });
 
-    await Repository.updateRequestStatus(req.params.id, 'ATENDIDA', newApp.id);
+    await Repository.updateRequestStatus(String(req.params.id), 'ATENDIDA', newApp.id);
 
     return res.status(201).json({
       success: true,

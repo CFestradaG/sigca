@@ -9,6 +9,11 @@ const router = useRouter();
 
 const filter = ref<'TODAS' | 'PENDIENTE' | 'ATENDIDA' | 'RECHAZADA'>('TODAS');
 const convertingRequest = ref<AppointmentRequest | null>(null);
+const conversionError = ref('');
+const isConverting = ref(false);
+const createNewPatient = ref(false);
+const createdPatientIdForRequest = ref('');
+const newPatient = ref({ nombres: '', apellidos: '', fechaNacimiento: '', sexo: 'Otro' as 'M' | 'F' | 'Otro' });
 
 const conversionForm = ref({
   pacienteId: store.patients[0]?.id || '',
@@ -16,11 +21,12 @@ const conversionForm = ref({
   fecha: '',
   horaInicio: '09:00',
   horaFin: '09:45',
-  sede: 'Zona 10 - Sixtino II',
+  sede: 'Sede Central - Zona 10',
   observaciones: '',
 });
 
 const handleStartConversion = (req: AppointmentRequest) => {
+  conversionError.value = '';
   const matchedPatient = store.patients.find(
     (p) => `${p.nombres} ${p.apellidos}`.toLowerCase().includes(req.solicitanteNombre.toLowerCase())
   );
@@ -31,19 +37,54 @@ const handleStartConversion = (req: AppointmentRequest) => {
     fecha: req.fechaPreferida || new Date().toISOString().slice(0, 10),
     horaInicio: '09:00',
     horaFin: '09:45',
-    sede: req.sedePreferida || 'Zona 10 - Sixtino II',
+    sede: req.sedePreferida?.toLowerCase().includes('14') || req.sedePreferida?.toLowerCase().includes('europlaza')
+      ? 'Sede Las Américas - Zona 14'
+      : req.sedePreferida?.toLowerCase().includes('línea') || req.sedePreferida?.toLowerCase().includes('linea')
+        ? 'En Línea (Teleterapia)'
+        : 'Sede Central - Zona 10',
     observaciones: `Originada por solicitud web: ${req.mensaje || 'Sin notas'}`,
   };
+  createNewPatient.value = !matchedPatient;
+  createdPatientIdForRequest.value = '';
+  const parts = req.solicitanteNombre.trim().split(/\s+/);
+  newPatient.value = { nombres: parts.shift() || '', apellidos: parts.join(' '), fechaNacimiento: '', sexo: 'Otro' };
   convertingRequest.value = req;
 };
 
-const handleConfirmConversion = () => {
+const handleConfirmConversion = async () => {
   if (!convertingRequest.value) return;
-
+  conversionError.value = '';
+  isConverting.value = true;
   const srv = store.services.find((s) => s.id === convertingRequest.value?.servicioId) || store.services[0];
-
-  store.createAppointment({
-    pacienteId: conversionForm.value.pacienteId,
+  try {
+    let patientId = conversionForm.value.pacienteId;
+    if (createNewPatient.value) {
+      if (!newPatient.value.nombres.trim() || !newPatient.value.apellidos.trim() || !newPatient.value.fechaNacimiento) throw new Error('Completa nombre, apellido y fecha de nacimiento del paciente.');
+      let patient = createdPatientIdForRequest.value ? store.patients.find((item) => item.id === createdPatientIdForRequest.value) : undefined;
+      if (!patient) patient = await store.addPatient({
+        nombres: newPatient.value.nombres.trim(), apellidos: newPatient.value.apellidos.trim(),
+        fechaNacimiento: newPatient.value.fechaNacimiento, sexo: newPatient.value.sexo,
+        telefono: convertingRequest.value.telefono, direccion: '', fechaInicio: new Date().toISOString().slice(0, 10),
+        observaciones: `Registrado desde solicitud web ${convertingRequest.value.id}`, estado: 'ACTIVO', photoUrl: '',
+      });
+      createdPatientIdForRequest.value = patient.id;
+      patientId = patient.id;
+      if (store.isMinor(patient.fechaNacimiento) && !store.getPatientGuardians(patient.id).length) {
+        const contactParts = convertingRequest.value.solicitanteNombre.trim().split(/\s+/);
+        await store.addGuardian({ nombres: contactParts[0] || 'Responsable', apellidos: contactParts.slice(1).join(' ') || 'No proporcionado', parentesco: 'Responsable', telefono: convertingRequest.value.telefono, email: convertingRequest.value.email, direccion: '', patientIds: [patient.id], photoUrl: '' });
+      }
+    }
+    const availability = await store.checkAppointmentAvailability({
+      pacienteId: patientId,
+      servicioId: srv.id,
+      profesionalId: conversionForm.value.profesionalId,
+      fecha: conversionForm.value.fecha,
+      horaInicio: conversionForm.value.horaInicio,
+      sede: conversionForm.value.sede,
+    });
+    if (!availability.available) throw new Error(availability.message);
+    await store.createAppointment({
+    pacienteId: patientId,
     servicioId: srv.id,
     profesionalId: conversionForm.value.profesionalId,
     fecha: conversionForm.value.fecha,
@@ -53,11 +94,15 @@ const handleConfirmConversion = () => {
     estado: 'CONFIRMADA',
     observaciones: conversionForm.value.observaciones,
     sede: conversionForm.value.sede,
-  });
-
-  store.updateRequestStatus(convertingRequest.value.id, 'ATENDIDA');
-  convertingRequest.value = null;
-  router.push('/admin/citas');
+    });
+    await store.updateRequestStatus(convertingRequest.value.id, 'ATENDIDA');
+    convertingRequest.value = null;
+    router.push('/admin/citas');
+  } catch (err: any) {
+    conversionError.value = err?.message || 'No se pudo convertir la solicitud en cita.';
+  } finally {
+    isConverting.value = false;
+  }
 };
 
 const filteredRequests = computed(() => {
@@ -186,10 +231,15 @@ const filteredRequests = computed(() => {
 
         <form @submit.prevent="handleConfirmConversion" class="space-y-4 text-xs">
           <div>
-            <label class="block font-bold text-[#1d1c16] mb-1">
-              Asociar a Paciente Registrado *
-            </label>
+            <div class="flex justify-between items-center mb-1"><label class="block font-bold text-[#1d1c16]">Paciente *</label><button type="button" @click="createNewPatient = !createNewPatient" class="text-[#00685d] font-bold underline">{{ createNewPatient ? 'Elegir registrado' : 'Crear paciente nuevo' }}</button></div>
+            <div v-if="createNewPatient" class="grid grid-cols-2 gap-2">
+              <input v-model="newPatient.nombres" required placeholder="Nombres" class="px-3 py-2 rounded-xl border border-[#bcc9c6]" />
+              <input v-model="newPatient.apellidos" required placeholder="Apellidos" class="px-3 py-2 rounded-xl border border-[#bcc9c6]" />
+              <input v-model="newPatient.fechaNacimiento" required type="date" class="px-3 py-2 rounded-xl border border-[#bcc9c6]" />
+              <select v-model="newPatient.sexo" class="px-3 py-2 rounded-xl border border-[#bcc9c6]"><option value="Otro">Sin especificar</option><option value="F">Femenino</option><option value="M">Masculino</option></select>
+            </div>
             <select
+              v-else
               v-model="conversionForm.pacienteId"
               class="w-full px-3 py-2 rounded-xl border border-[#bcc9c6] text-xs bg-white focus:ring-1 focus:ring-[#00685d]"
             >
@@ -253,9 +303,9 @@ const filteredRequests = computed(() => {
               v-model="conversionForm.sede"
               class="w-full px-3 py-2 rounded-xl border border-[#bcc9c6] text-xs bg-white"
             >
-              <option value="Zona 10 - Sixtino II">Zona 10 - Edificio Sixtino II</option>
-              <option value="Zona 14 - Europlaza">Zona 14 - Europlaza Las Conchas</option>
-              <option value="Modalidad En Línea">Modalidad En Línea (Teleterapia)</option>
+              <option value="Sede Central - Zona 10">Zona 10 - Edificio Sixtino II</option>
+              <option value="Sede Las Américas - Zona 14">Zona 14 - Europlaza Las Conchas</option>
+              <option value="En Línea (Teleterapia)">Modalidad En Línea (Teleterapia)</option>
             </select>
           </div>
 
@@ -268,6 +318,8 @@ const filteredRequests = computed(() => {
             />
           </div>
 
+          <div v-if="conversionError" role="alert" class="p-3 rounded-xl bg-[#ffdad2] text-[#731a04] text-xs">{{ conversionError }}</div>
+
           <div class="pt-3 border-t border-[#ece8df] flex justify-end gap-2">
             <button
               type="button"
@@ -278,9 +330,10 @@ const filteredRequests = computed(() => {
             </button>
             <button
               type="submit"
-              class="px-5 py-2 bg-[#00685d] hover:bg-[#008376] text-white rounded-xl text-xs font-bold shadow-xs"
+              :disabled="isConverting"
+              class="px-5 py-2 bg-[#00685d] hover:bg-[#008376] text-white rounded-xl text-xs font-bold shadow-xs disabled:opacity-50"
             >
-              Confirmar y Generar Cita
+              {{ isConverting ? 'Verificando…' : 'Confirmar y Generar Cita' }}
             </button>
           </div>
         </form>

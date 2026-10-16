@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue';
+import { ref, computed, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { useAppStore } from '../../stores/appStore';
 import { Appointment, AppointmentStatus } from '../../types';
@@ -10,10 +10,25 @@ const router = useRouter();
 const statusFilter = ref<'TODAS' | AppointmentStatus>('TODAS');
 const professionalFilter = ref<string>('TODOS');
 const dateFilter = ref<string>('');
+const sortKey = ref<'fecha' | 'paciente' | 'servicio' | 'profesional' | 'precioQ' | 'estado'>('fecha');
+const sortAscending = ref(false);
+const toggleSort = (key: typeof sortKey.value) => {
+  if (sortKey.value === key) sortAscending.value = !sortAscending.value;
+  else { sortKey.value = key; sortAscending.value = true; }
+};
 
 const showNewAptModal = ref(false);
 const reschedulingApt = ref<Appointment | null>(null);
 const errorMsg = ref('');
+const availability = ref<{ available: boolean; message: string; horaFin?: string } | null>(null);
+const checkingAvailability = ref(false);
+const reschedulingError = ref('');
+const isRescheduling = ref(false);
+const createNewPatient = ref(false);
+const savedDraftPatientId = ref('');
+const savedDraftGuardian = ref(false);
+const newPatient = ref({ nombres: '', apellidos: '', fechaNacimiento: '', sexo: 'Otro' as 'M' | 'F' | 'Otro' });
+const newGuardian = ref({ nombres: '', apellidos: '', parentesco: '', telefono: '', email: '' });
 
 const form = ref({
   pacienteId: store.patients[0]?.id || '',
@@ -22,7 +37,7 @@ const form = ref({
   fecha: new Date().toISOString().slice(0, 10),
   horaInicio: '09:00',
   horaFin: '09:45',
-  sede: 'Zona 10 - Sixtino II',
+  sede: 'Sede Central - Zona 10',
   observaciones: '',
 });
 
@@ -34,6 +49,11 @@ const rescheduleData = ref({
 
 const handleOpenNew = () => {
   errorMsg.value = '';
+  createNewPatient.value = false;
+  savedDraftPatientId.value = '';
+  savedDraftGuardian.value = false;
+  newPatient.value = { nombres: '', apellidos: '', fechaNacimiento: '', sexo: 'Otro' };
+  newGuardian.value = { nombres: '', apellidos: '', parentesco: '', telefono: '', email: '' };
   form.value = {
     pacienteId: store.patients[0]?.id || '',
     servicioId: store.services[0]?.id || '',
@@ -41,29 +61,63 @@ const handleOpenNew = () => {
     fecha: new Date().toISOString().slice(0, 10),
     horaInicio: '09:00',
     horaFin: '09:45',
-    sede: 'Zona 10 - Sixtino II',
+    sede: 'Sede Central - Zona 10',
     observaciones: '',
   };
   showNewAptModal.value = true;
 };
 
-const handleCreateAppointment = () => {
-  const patient = store.patients.find((p) => p.id === form.value.pacienteId);
-  if (!patient) return;
-
-  // RF-04 Validation: minor must have guardian
-  if (store.isMinor(patient.fechaNacimiento)) {
-    const guardians = store.getPatientGuardians(patient.id);
-    if (guardians.length === 0) {
-      errorMsg.value = `Regla RF-04: El paciente ${patient.nombres} ${patient.apellidos} es menor de 18 años y debe tener al menos un responsable registrado antes de programar una cita.`;
-      return;
-    }
+watch(() => [showNewAptModal.value, createNewPatient.value, form.value.pacienteId, form.value.servicioId, form.value.profesionalId, form.value.fecha, form.value.horaInicio, form.value.sede], async () => {
+  availability.value = null;
+  if (!showNewAptModal.value || createNewPatient.value || !form.value.pacienteId || !form.value.servicioId || !form.value.profesionalId || !form.value.fecha || !form.value.horaInicio || !form.value.sede) return;
+  checkingAvailability.value = true;
+  try {
+    availability.value = await store.checkAppointmentAvailability({ ...form.value });
+    if (availability.value.horaFin) form.value.horaFin = availability.value.horaFin;
+  } catch (err: any) {
+    availability.value = { available: false, message: err?.message || 'No se pudo consultar la disponibilidad.' };
+  } finally {
+    checkingAvailability.value = false;
   }
+});
 
-  const srv = store.services.find((s) => s.id === form.value.servicioId) || store.services[0];
+const handleCreateAppointment = async () => {
+  errorMsg.value = '';
+  try {
+    let patientId = form.value.pacienteId;
+    let patient = createNewPatient.value && savedDraftPatientId.value
+      ? store.patients.find((item) => item.id === savedDraftPatientId.value)
+      : store.patients.find((item) => item.id === patientId);
 
-  store.createAppointment({
-    pacienteId: form.value.pacienteId,
+    if (createNewPatient.value) {
+      if (!newPatient.value.nombres.trim() || !newPatient.value.apellidos.trim() || !newPatient.value.fechaNacimiento) throw new Error('Completa nombres, apellidos y fecha de nacimiento del paciente nuevo.');
+      if (store.isMinor(newPatient.value.fechaNacimiento) && (!newGuardian.value.nombres.trim() || !newGuardian.value.apellidos.trim() || !newGuardian.value.parentesco.trim() || !newGuardian.value.telefono.trim())) {
+        throw new Error('El paciente es menor de edad. Completa los datos obligatorios de su responsable.');
+      }
+      if (!patient) {
+        patient = await store.addPatient({
+          ...newPatient.value, nombres: newPatient.value.nombres.trim(), apellidos: newPatient.value.apellidos.trim(),
+          telefono: '', direccion: '', fechaInicio: new Date().toISOString().slice(0, 10),
+          observaciones: 'Registrado al programar una cita.', estado: 'ACTIVO', photoUrl: '',
+        });
+        savedDraftPatientId.value = patient.id;
+      }
+      patientId = patient.id;
+      if (store.isMinor(patient.fechaNacimiento) && !store.getPatientGuardians(patient.id).length && !savedDraftGuardian.value) {
+        await store.addGuardian({ ...newGuardian.value, nombres: newGuardian.value.nombres.trim(), apellidos: newGuardian.value.apellidos.trim(), parentesco: newGuardian.value.parentesco.trim(), telefono: newGuardian.value.telefono.trim(), email: newGuardian.value.email.trim(), direccion: '', patientIds: [patient.id], photoUrl: '' });
+        savedDraftGuardian.value = true;
+      }
+    }
+    if (!patient) throw new Error('Selecciona un paciente o completa los datos del paciente nuevo.');
+    if (store.isMinor(patient.fechaNacimiento) && store.getPatientGuardians(patient.id).length === 0) throw new Error(`Regla RF-04: ${patient.nombres} ${patient.apellidos} es menor de 18 años y necesita un responsable registrado.`);
+
+    const srv = store.services.find((s) => s.id === form.value.servicioId) || store.services[0];
+    if (!srv) throw new Error('Selecciona un servicio activo.');
+    const currentAvailability = await store.checkAppointmentAvailability({ ...form.value, pacienteId: patientId });
+    availability.value = currentAvailability;
+    if (!currentAvailability.available) { errorMsg.value = currentAvailability.message; return; }
+    await store.createAppointment({
+    pacienteId: patientId,
     servicioId: srv.id,
     profesionalId: form.value.profesionalId,
     fecha: form.value.fecha,
@@ -73,28 +127,55 @@ const handleCreateAppointment = () => {
     estado: 'PENDIENTE',
     observaciones: form.value.observaciones.trim(),
     sede: form.value.sede,
-  });
-
-  showNewAptModal.value = false;
+    });
+    showNewAptModal.value = false;
+  } catch (err: any) {
+    errorMsg.value = err?.message || 'No se pudo programar la cita.';
+  }
 };
 
-const handleSaveReschedule = () => {
+const handleSaveReschedule = async () => {
   if (!reschedulingApt.value) return;
-  store.rescheduleAppointment(
-    reschedulingApt.value.id,
-    rescheduleData.value.fecha,
-    rescheduleData.value.horaInicio,
-    rescheduleData.value.horaFin
-  );
-  reschedulingApt.value = null;
+  reschedulingError.value = '';
+  isRescheduling.value = true;
+  try {
+    const apt = reschedulingApt.value;
+    const result = await store.checkAppointmentAvailability({
+      pacienteId: apt.pacienteId,
+      servicioId: apt.servicioId,
+      profesionalId: apt.profesionalId,
+      fecha: rescheduleData.value.fecha,
+      horaInicio: rescheduleData.value.horaInicio,
+      sede: apt.sede,
+      idToIgnore: apt.id,
+    });
+    if (!result.available) throw new Error(result.message);
+    await store.rescheduleAppointment(apt.id, rescheduleData.value.fecha, rescheduleData.value.horaInicio, result.horaFin || rescheduleData.value.horaFin);
+    reschedulingApt.value = null;
+  } catch (err: any) {
+    reschedulingError.value = err?.message || 'No se pudo reprogramar la cita.';
+  } finally {
+    isRescheduling.value = false;
+  }
 };
 
 const filteredAppointments = computed(() => {
   return store.appointments
+    .filter((a) => {
+      const site = store.selectedSite;
+      if (site === 'todas') return true;
+      const venue = (a.sede || '').toLowerCase();
+      return site === 'z10' ? venue.includes('10') || venue.includes('sixtino') : site === 'z14' ? venue.includes('14') || venue.includes('europlaza') || venue.includes('américa') : venue.includes('línea') || venue.includes('linea') || venue.includes('online');
+    })
     .filter((a) => (statusFilter.value === 'TODAS' ? true : a.estado === statusFilter.value))
     .filter((a) => (professionalFilter.value === 'TODOS' ? true : a.profesionalId === professionalFilter.value))
     .filter((a) => (dateFilter.value ? a.fecha === dateFilter.value : true))
-    .sort((a, b) => b.fecha.localeCompare(a.fecha));
+    .sort((a, b) => {
+      const patientName = (apt: Appointment) => { const p = store.patients.find((item) => item.id === apt.pacienteId); return `${p?.nombres || ''} ${p?.apellidos || ''}`.toLowerCase(); };
+      const value = (apt: Appointment) => sortKey.value === 'paciente' ? patientName(apt) : sortKey.value === 'servicio' ? (store.services.find((s) => s.id === apt.servicioId)?.nombre || '') : sortKey.value === 'profesional' ? (store.users.find((u) => u.id === apt.profesionalId)?.name || '') : String(apt[sortKey.value] || '');
+      const compared = value(a).localeCompare(value(b), 'es', { numeric: true });
+      return (sortAscending.value ? compared : -compared) || b.fecha.localeCompare(a.fecha) || b.horaInicio.localeCompare(a.horaInicio) || b.fechaCreacion.localeCompare(a.fechaCreacion);
+    });
 });
 
 const goToPatient = (patientId: string) => {
@@ -191,12 +272,12 @@ const goToPatient = (patientId: string) => {
         <table class="w-full text-left text-xs">
           <thead class="bg-[#f8f3ea] border-b border-[#ece8df] text-[#6d7a77] uppercase font-bold text-[11px]">
             <tr>
-              <th class="py-3 px-4">Fecha y Horario</th>
-              <th class="py-3 px-4">Paciente</th>
-              <th class="py-3 px-4">Servicio Terapéutico</th>
-              <th class="py-3 px-4">Profesional Asignado</th>
-              <th class="py-3 px-4">Precio (Q)</th>
-              <th class="py-3 px-4">Estado</th>
+              <th class="py-3 px-4 cursor-pointer" @click="toggleSort('fecha')">Fecha y Horario {{ sortKey === 'fecha' ? (sortAscending ? '↑' : '↓') : '↕' }}</th>
+              <th class="py-3 px-4 cursor-pointer" @click="toggleSort('paciente')">Paciente {{ sortKey === 'paciente' ? (sortAscending ? '↑' : '↓') : '↕' }}</th>
+              <th class="py-3 px-4 cursor-pointer" @click="toggleSort('servicio')">Servicio Terapéutico {{ sortKey === 'servicio' ? (sortAscending ? '↑' : '↓') : '↕' }}</th>
+              <th class="py-3 px-4 cursor-pointer" @click="toggleSort('profesional')">Profesional Asignado {{ sortKey === 'profesional' ? (sortAscending ? '↑' : '↓') : '↕' }}</th>
+              <th class="py-3 px-4 cursor-pointer" @click="toggleSort('precioQ')">Precio (Q) {{ sortKey === 'precioQ' ? (sortAscending ? '↑' : '↓') : '↕' }}</th>
+              <th class="py-3 px-4 cursor-pointer" @click="toggleSort('estado')">Estado {{ sortKey === 'estado' ? (sortAscending ? '↑' : '↓') : '↕' }}</th>
               <th class="py-3 px-4 text-right">Acciones</th>
             </tr>
           </thead>
@@ -276,7 +357,7 @@ const goToPatient = (patientId: string) => {
 
                 <template v-if="apt.estado !== 'COMPLETADA' && apt.estado !== 'CANCELADA'">
                   <button
-                    @click="reschedulingApt = apt; rescheduleData = { fecha: apt.fecha, horaInicio: apt.horaInicio, horaFin: apt.horaFin }"
+                    @click="reschedulingError = ''; reschedulingApt = apt; rescheduleData = { fecha: apt.fecha, horaInicio: apt.horaInicio, horaFin: apt.horaFin }"
                     title="Reprogramar horario o fecha"
                     class="px-2 py-1 bg-[#f2ede4] hover:bg-[#ece8df] text-[#1d1c16] rounded-lg text-[11px] font-bold cursor-pointer"
                   >
@@ -316,8 +397,27 @@ const goToPatient = (patientId: string) => {
 
         <form @submit.prevent="handleCreateAppointment" class="space-y-4 text-xs">
           <div>
-            <label class="block font-bold text-[#1d1c16] mb-1">Paciente *</label>
+            <div class="flex items-center justify-between mb-1"><label class="block font-bold text-[#1d1c16]">Paciente *</label><button type="button" @click="createNewPatient = !createNewPatient; errorMsg = ''; availability = null" class="font-bold text-[#00685d] underline">{{ createNewPatient ? 'Elegir paciente registrado' : 'Registrar paciente nuevo' }}</button></div>
+            <div v-if="createNewPatient" class="space-y-3">
+              <div class="grid grid-cols-2 gap-2">
+                <input v-model="newPatient.nombres" required placeholder="Nombres del paciente *" class="w-full px-3 py-2 rounded-xl border border-[#bcc9c6] text-xs" />
+                <input v-model="newPatient.apellidos" required placeholder="Apellidos del paciente *" class="w-full px-3 py-2 rounded-xl border border-[#bcc9c6] text-xs" />
+                <input v-model="newPatient.fechaNacimiento" required type="date" :max="new Date().toISOString().slice(0, 10)" class="w-full px-3 py-2 rounded-xl border border-[#bcc9c6] text-xs" />
+                <select v-model="newPatient.sexo" class="w-full px-3 py-2 rounded-xl border border-[#bcc9c6] text-xs"><option value="Otro">Sin especificar</option><option value="F">Femenino</option><option value="M">Masculino</option></select>
+              </div>
+              <div v-if="newPatient.fechaNacimiento && store.isMinor(newPatient.fechaNacimiento)" class="p-3 rounded-xl bg-[#f8f3ea] space-y-2">
+                <p class="font-bold text-[#1d1c16]">Responsable del paciente menor *</p>
+                <div class="grid grid-cols-2 gap-2">
+                  <input v-model="newGuardian.nombres" required placeholder="Nombres *" class="w-full px-3 py-2 rounded-xl border border-[#bcc9c6] text-xs" />
+                  <input v-model="newGuardian.apellidos" required placeholder="Apellidos *" class="w-full px-3 py-2 rounded-xl border border-[#bcc9c6] text-xs" />
+                  <input v-model="newGuardian.parentesco" required placeholder="Parentesco *" class="w-full px-3 py-2 rounded-xl border border-[#bcc9c6] text-xs" />
+                  <input v-model="newGuardian.telefono" required type="tel" placeholder="Teléfono *" class="w-full px-3 py-2 rounded-xl border border-[#bcc9c6] text-xs" />
+                  <input v-model="newGuardian.email" type="email" placeholder="Correo (opcional)" class="col-span-2 w-full px-3 py-2 rounded-xl border border-[#bcc9c6] text-xs" />
+                </div>
+              </div>
+            </div>
             <select
+              v-else
               v-model="form.pacienteId"
               @change="errorMsg = ''"
               class="w-full px-3 py-2 rounded-xl border border-[#bcc9c6] text-xs bg-white"
@@ -391,6 +491,7 @@ const goToPatient = (patientId: string) => {
                 type="time"
                 required
                 v-model="form.horaFin"
+                readonly
                 class="w-full px-2.5 py-2 rounded-xl border border-[#bcc9c6] text-xs"
               />
             </div>
@@ -402,10 +503,17 @@ const goToPatient = (patientId: string) => {
               v-model="form.sede"
               class="w-full px-3 py-2 rounded-xl border border-[#bcc9c6] text-xs bg-white"
             >
-              <option value="Zona 10 - Sixtino II">Zona 10 - Sixtino II</option>
-              <option value="Zona 14 - Europlaza">Zona 14 - Europlaza</option>
+              <option value="Sede Central - Zona 10">Sede Central - Zona 10</option>
+              <option value="Sede Las Américas - Zona 14">Sede Las Américas - Zona 14</option>
               <option value="En Línea (Teleterapia)">En Línea (Teleterapia)</option>
             </select>
+          </div>
+
+          <div v-if="checkingAvailability" class="p-3 rounded-xl bg-[#f2ede4] text-xs text-[#3d4947] flex items-center gap-2">
+            <span class="material-symbols-outlined animate-spin text-base">progress_activity</span> Consultando sede, horario y agenda del profesional…
+          </div>
+          <div v-else-if="availability" role="status" class="p-3 rounded-xl text-xs font-semibold" :class="availability.available ? 'bg-[#e0f5ee] text-[#00685d]' : 'bg-[#ffdad2] text-[#731a04]'">
+            {{ availability.available ? `Disponible en ${form.sede}: ${availability.message}` : availability.message }}
           </div>
 
           <div>
@@ -427,9 +535,10 @@ const goToPatient = (patientId: string) => {
             </button>
             <button
               type="submit"
-              class="px-5 py-2 bg-[#00685d] hover:bg-[#008376] text-white rounded-xl text-xs font-bold shadow-xs"
+              :disabled="checkingAvailability || (!createNewPatient && availability?.available !== true)"
+              class="px-5 py-2 bg-[#00685d] hover:bg-[#008376] text-white rounded-xl text-xs font-bold shadow-xs disabled:opacity-50"
             >
-              Guardar Cita
+              {{ checkingAvailability ? 'Verificando…' : 'Guardar Cita' }}
             </button>
           </div>
         </form>
@@ -443,6 +552,7 @@ const goToPatient = (patientId: string) => {
           Reprogramar Cita ({{ reschedulingApt.id }})
         </h3>
         <form @submit.prevent="handleSaveReschedule" class="space-y-4 text-xs">
+          <div v-if="reschedulingError" role="alert" class="p-3 rounded-xl bg-[#ffdad2] text-[#731a04]">{{ reschedulingError }}</div>
           <div>
             <label class="block font-bold text-[#1d1c16] mb-1">Nueva Fecha *</label>
             <input
@@ -469,6 +579,7 @@ const goToPatient = (patientId: string) => {
                 type="time"
                 required
                 v-model="rescheduleData.horaFin"
+              readonly
                 class="w-full px-3 py-2 rounded-xl border border-[#bcc9c6] text-xs"
               />
             </div>
@@ -484,9 +595,10 @@ const goToPatient = (patientId: string) => {
             </button>
             <button
               type="submit"
-              class="px-5 py-2 bg-[#00685d] text-white rounded-xl text-xs font-bold"
+              :disabled="isRescheduling"
+              class="px-5 py-2 bg-[#00685d] text-white rounded-xl text-xs font-bold disabled:opacity-50"
             >
-              Guardar Reprogramación
+              {{ isRescheduling ? 'Verificando…' : 'Guardar Reprogramación' }}
             </button>
           </div>
         </form>

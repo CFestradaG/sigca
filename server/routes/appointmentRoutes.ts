@@ -6,6 +6,21 @@ export const appointmentRouter = Router();
 
 appointmentRouter.use(authenticateToken);
 
+appointmentRouter.get('/disponibilidad', (req, res: Response) => {
+  const { pacienteId, servicioId, profesionalId, fecha, horaInicio, sede, idToIgnore } = req.query;
+  if (!pacienteId || !servicioId || !profesionalId || !fecha || !horaInicio || !sede) {
+    return res.status(400).json({ success: false, message: 'Paciente, servicio, profesional, fecha, hora y sede son obligatorios.' });
+  }
+  const result = Repository.validateAppointmentRules({
+    pacienteId: String(pacienteId), servicioId: String(servicioId), profesionalId: String(profesionalId),
+    fecha: String(fecha), horaInicio: String(horaInicio), sede: String(sede), idToIgnore: idToIgnore ? String(idToIgnore) : undefined,
+  });
+  return res.status(200).json({ success: true, data: {
+    available: result.valid, message: result.error || `Disponible de ${horaInicio} a ${result.calculatedHoraFin}.`,
+    horaFin: result.calculatedHoraFin, precioQ: result.precioQ,
+  } });
+});
+
 // GET /api/citas
 appointmentRouter.get('/', (req: AuthRequest, res: Response) => {
   const { pacienteId, profesionalId, fecha, estado } = req.query;
@@ -28,7 +43,7 @@ appointmentRouter.get('/', (req: AuthRequest, res: Response) => {
 
 // GET /api/citas/:id
 appointmentRouter.get('/:id', (req, res: Response) => {
-  const app = Repository.getAppointmentById(req.params.id);
+  const app = Repository.getAppointmentById(String(req.params.id));
   if (!app) {
     return res.status(404).json({ success: false, message: 'Cita no encontrada' });
   }
@@ -40,7 +55,7 @@ appointmentRouter.post('/', async (req, res: Response) => {
   try {
     const { pacienteId, servicioId, profesionalId, fecha, horaInicio, observaciones, sede } = req.body;
 
-    if (!pacienteId || !servicioId || !profesionalId || !fecha || !horaInicio) {
+    if (!pacienteId || !servicioId || !profesionalId || !fecha || !horaInicio || !sede) {
       return res.status(400).json({
         success: false,
         message: 'RN-30: Todos los datos son requeridos (paciente, servicio, profesional, fecha, horaInicio)',
@@ -73,7 +88,7 @@ appointmentRouter.post('/', async (req, res: Response) => {
 // PUT /api/citas/:id (Reschedule or modify)
 appointmentRouter.put('/:id', async (req, res: Response) => {
   try {
-    const updated = await Repository.updateAppointment(req.params.id, req.body);
+    const updated = await Repository.updateAppointment(String(req.params.id), req.body);
     return res.status(200).json({
       success: true,
       message: 'Cita reprogramada exitosamente',
@@ -99,7 +114,7 @@ appointmentRouter.patch('/:id/estado', async (req: AuthRequest, res: Response) =
     }
 
     // Role check: PROFESIONAL can mark as COMPLETADA (RF-02)
-    const updated = await Repository.changeAppointmentStatus(req.params.id, estado);
+    const updated = await Repository.changeAppointmentStatus(String(req.params.id), estado);
     return res.status(200).json({
       success: true,
       message: `Estado de la cita actualizado a ${estado}`,
@@ -115,13 +130,13 @@ appointmentRouter.patch('/:id/estado', async (req: AuthRequest, res: Response) =
 
 // GET /api/citas/:id/pagos
 appointmentRouter.get('/:id/pagos', (req, res: Response) => {
-  const pagos = Repository.getPayments({ citaId: req.params.id });
+  const pagos = Repository.getPayments({ citaId: String(req.params.id) });
   return res.status(200).json({ success: true, count: pagos.length, data: pagos });
 });
 
 // GET /api/citas/:id/saldo
 appointmentRouter.get('/:id/saldo', (req, res: Response) => {
-  const app = Repository.getAppointmentById(req.params.id);
+  const app = Repository.getAppointmentById(String(req.params.id));
   if (!app) {
     return res.status(404).json({ success: false, message: 'Cita no encontrada' });
   }

@@ -13,43 +13,10 @@ const emit = defineEmits<{
 
 const store = useAppStore();
 
-const email = ref('smorales@centroarmonia.com.gt');
-const password = ref('Admin123!');
+const email = ref('');
+const password = ref('');
 const errorMessage = ref('');
 const isLoading = ref(false);
-
-const quickLogins = [
-  {
-    role: 'ADMIN',
-    label: 'Administrador General',
-    email: 'smorales@centroarmonia.com.gt',
-    pass: 'Admin123!',
-    desc: 'Acceso total a todos los módulos y configuración',
-    color: 'bg-[#00685d]',
-  },
-  {
-    role: 'RECEPCION',
-    label: 'Recepción y Caja',
-    email: 'recepcion@centroarmonia.com.gt',
-    pass: 'Recep123!',
-    desc: 'Gestión de citas, pacientes, pagos y caja diaria',
-    color: 'bg-[#00738c]',
-  },
-  {
-    role: 'PROFESIONAL',
-    label: 'Terapeuta Clínico (EAV)',
-    email: 'acastillo@centroarmonia.com.gt',
-    pass: 'Profe123!',
-    desc: 'Consulta de agenda, completar citas y asignación de materiales',
-    color: 'bg-[#a33d23]',
-  },
-];
-
-const handleQuickSelect = (item: (typeof quickLogins)[0]) => {
-  email.value = item.email;
-  password.value = item.pass;
-  handleSubmit();
-};
 
 const handleSubmit = async () => {
   errorMessage.value = '';
@@ -87,7 +54,7 @@ const handleSubmit = async () => {
           </div>
           <div>
             <h3 class="font-heading font-bold text-xl text-white">Acceso al Sistema SIGCA</h3>
-            <p class="text-xs text-white/80">Centro Armonía • Autenticación y Control de Roles</p>
+            <p class="text-xs text-white/80">Acceso exclusivo para personal autorizado</p>
           </div>
         </div>
         <button
@@ -154,44 +121,9 @@ const handleSubmit = async () => {
           </button>
         </form>
 
-        <!-- Quick Access Demostración -->
-        <div class="pt-4 border-t border-[#e7e2d9]">
-          <div class="flex items-center justify-between mb-3">
-            <span class="text-xs font-bold text-[#3d4947] uppercase tracking-wider">
-              Acceso Rápido para Demostración (Evaluación)
-            </span>
-            <span class="text-[10px] text-[#00685d] font-semibold bg-[#e8f5e9] px-2 py-0.5 rounded-full">
-              Tokens JWT
-            </span>
-          </div>
-
-          <div class="grid grid-cols-1 gap-2">
-            <button
-              v-for="item in quickLogins"
-              :key="item.role"
-              @click="handleQuickSelect(item)"
-              type="button"
-              class="w-full text-left p-3 rounded-2xl bg-white hover:bg-[#f2ede4] border border-[#bcc9c6] transition-all flex items-center justify-between group cursor-pointer"
-            >
-              <div class="flex items-center gap-3">
-                <div
-                  :class="[item.color, 'w-9 h-9 rounded-xl flex items-center justify-center text-white text-xs font-bold']"
-                >
-                  {{ item.role[0] }}
-                </div>
-                <div>
-                  <div class="text-xs font-bold text-[#1d1c16] group-hover:text-[#00685d] transition-colors">
-                    {{ item.label }}
-                  </div>
-                  <div class="text-[11px] text-[#6d7a77]">{{ item.email }}</div>
-                </div>
-              </div>
-              <span class="material-symbols-outlined text-[#6d7a77] text-lg group-hover:translate-x-1 transition-transform">
-                arrow_forward
-              </span>
-            </button>
-          </div>
-        </div>
+        <p class="pt-4 border-t border-[#e7e2d9] text-[11px] text-[#6d7a77]">
+          Si necesita acceso, solicítelo a la administración del centro.
+        </p>
       </div>
     </div>
   </div>

@@ -39,12 +39,29 @@ function getStoredToken(): string | null {
 }
 
 function getStoredUser(): User | null {
-  try {
-    const raw = localStorage.getItem(USER_KEY) || sessionStorage.getItem(USER_KEY);
-    return raw ? JSON.parse(raw) : initialUsers[0];
-  } catch {
-    return initialUsers[0];
-  }
+  // A browser cache is not proof of identity. The server session is restored via /auth/me.
+  return null;
+}
+
+function mapApiUser(user: any): User {
+  return {
+    id: user.id,
+    name: user.nombre ?? user.name,
+    email: user.email,
+    role: user.rol ?? user.role,
+    active: user.activo ?? user.active ?? true,
+    phone: user.telefono ?? user.phone,
+    specialty: user.especialidad ?? user.specialty,
+    avatarUrl: user.avatarUrl,
+  };
+}
+
+function mapApiPatient(patient: any): Patient {
+  return { ...patient, photoUrl: patient.fotoUrl ?? patient.photoUrl ?? '' };
+}
+
+function mapApiGuardian(guardian: any): Guardian {
+  return { ...guardian, photoUrl: guardian.fotoUrl ?? guardian.photoUrl ?? '' };
 }
 
 async function apiFetch(endpoint: string, options: RequestInit = {}) {
@@ -71,11 +88,15 @@ export const useAppStore = defineStore('app', {
   state: () => ({
     authToken: getStoredToken(),
     currentUser: getStoredUser(),
+    authReady: !getStoredToken(),
     lastAuthError: '',
+    activeRoleView: null as User['role'] | null,
+    selectedSite: 'todas' as 'todas' | 'z10' | 'z14' | 'online',
+    globalSearchTerm: '',
     selectedPatientId: 'pac-1' as string | null,
     selectedPaymentForPrint: null as Payment | null,
 
-    // Collections populated directly from API with initialData fixtures as instant fallback
+    // Fixtures initialize the interface; successful API responses replace them.
     users: initialUsers as User[],
     patients: initialPatients as Patient[],
     guardians: initialGuardians as Guardian[],
@@ -90,7 +111,7 @@ export const useAppStore = defineStore('app', {
     messages: initialMessages as ContactMessage[],
 
     isLoadingData: false,
-    apiConnected: true,
+    apiConnected: false,
   }),
 
   getters: {
@@ -140,10 +161,10 @@ export const useAppStore = defineStore('app', {
           this.content = contentRes.value.data;
         }
         if (patientsRes.status === 'fulfilled' && patientsRes.value.data) {
-          this.patients = patientsRes.value.data;
+          this.patients = patientsRes.value.data.map(mapApiPatient);
         }
         if (guardiansRes.status === 'fulfilled' && guardiansRes.value.data) {
-          this.guardians = guardiansRes.value.data;
+          this.guardians = guardiansRes.value.data.map(mapApiGuardian);
         }
         if (appointmentsRes.status === 'fulfilled' && appointmentsRes.value.data) {
           this.appointments = appointmentsRes.value.data;
@@ -176,9 +197,10 @@ export const useAppStore = defineStore('app', {
           }));
         }
 
-        this.apiConnected = true;
+        this.apiConnected = servicesRes.status === 'fulfilled';
       } catch (err) {
-        console.warn('Fallback to local state:', err);
+        this.apiConnected = false;
+        console.error('No se pudieron cargar los datos del servidor:', err);
       } finally {
         this.isLoadingData = false;
       }
@@ -194,17 +216,9 @@ export const useAppStore = defineStore('app', {
 
         if (res.success && res.token && res.user) {
           this.authToken = res.token;
-          const userFormatted: User = {
-            id: res.user.id,
-            name: res.user.nombre,
-            email: res.user.email,
-            role: res.user.rol,
-            active: res.user.activo !== false,
-            phone: res.user.telefono,
-            specialty: res.user.especialidad,
-            avatarUrl: res.user.avatarUrl,
-          };
+          const userFormatted = mapApiUser(res.user);
           this.currentUser = userFormatted;
+          this.activeRoleView = userFormatted.role;
 
           try {
             localStorage.setItem(TOKEN_KEY, res.token);
@@ -220,12 +234,89 @@ export const useAppStore = defineStore('app', {
       } catch (err: any) {
         this.lastAuthError = err.message || 'Error al autenticar';
         return false;
+      } finally {
+        this.authReady = true;
       }
+    },
+
+    async restoreSession(): Promise<boolean> {
+      if (!this.authToken) {
+        this.currentUser = null;
+        this.authReady = true;
+        return false;
+      }
+      try {
+        const res = await apiFetch('/api/auth/me');
+        if (!res.success || !res.user) throw new Error('Sesión no válida');
+        this.currentUser = mapApiUser(res.user);
+        this.activeRoleView = this.currentUser.role;
+        this.authReady = true;
+        if (!this.currentUser.active) {
+          this.logout();
+          return false;
+        }
+        return true;
+      } catch {
+        this.logout();
+        return false;
+      }
+    },
+
+    async updateOwnAvatar(avatarUrl: string): Promise<User> {
+      const res = await apiFetch('/api/auth/me/avatar', {
+        method: 'PATCH',
+        body: JSON.stringify({ avatarUrl }),
+      });
+      if (!res.user) throw new Error('El servidor no devolvió el perfil actualizado.');
+      this.currentUser = mapApiUser(res.user);
+      return this.currentUser;
+    },
+
+    async addUser(input: {
+      name: string; email: string; password: string; role: User['role'];
+      phone?: string; specialty?: string; avatarUrl?: string;
+    }): Promise<User> {
+      const res = await apiFetch('/api/usuarios', {
+        method: 'POST',
+        body: JSON.stringify({
+          nombre: input.name.trim(), email: input.email.trim(), password: input.password,
+          rol: input.role, telefono: input.phone?.trim(), especialidad: input.specialty?.trim(),
+          avatarUrl: input.avatarUrl,
+        }),
+      });
+      if (!res.data) throw new Error('El servidor no devolvió el usuario creado.');
+      const user = mapApiUser(res.data);
+      this.users.unshift(user);
+      return user;
+    },
+
+    async updateUser(id: string, input: Partial<Omit<User, 'id'>>): Promise<User> {
+      const res = await apiFetch(`/api/usuarios/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          nombre: input.name?.trim(), email: input.email?.trim(), rol: input.role,
+          telefono: input.phone?.trim(), especialidad: input.specialty?.trim(),
+          avatarUrl: input.avatarUrl, activo: input.active,
+        }),
+      });
+      if (!res.data) throw new Error('El servidor no devolvió el usuario actualizado.');
+      const user = mapApiUser(res.data);
+      const index = this.users.findIndex((item) => item.id === id);
+      if (index !== -1) this.users[index] = user;
+      return user;
+    },
+
+    async resetUserPassword(id: string, newPassword: string): Promise<void> {
+      await apiFetch(`/api/usuarios/${id}/password`, {
+        method: 'PATCH',
+        body: JSON.stringify({ newPassword }),
+      });
     },
 
     logout() {
       this.authToken = null;
       this.currentUser = null;
+      this.authReady = true;
       try {
         localStorage.removeItem(TOKEN_KEY);
         localStorage.removeItem(USER_KEY);
@@ -238,12 +329,17 @@ export const useAppStore = defineStore('app', {
 
     setCurrentUser(user: User | null) {
       this.currentUser = user;
+      this.authReady = true;
       if (user) {
         try {
           localStorage.setItem(USER_KEY, JSON.stringify(user));
         } catch (e) {}
       }
     },
+
+    setActiveRoleView(role: User['role']) { this.activeRoleView = role; },
+    setSelectedSite(site: 'todas' | 'z10' | 'z14' | 'online') { this.selectedSite = site; },
+    setGlobalSearchTerm(term: string) { this.globalSearchTerm = term; },
 
     setSelectedPatientId(id: string | null) {
       this.selectedPatientId = id;
@@ -307,36 +403,23 @@ export const useAppStore = defineStore('app', {
       try {
         const res = await apiFetch('/api/pacientes', {
           method: 'POST',
-          body: JSON.stringify(patientData),
+          body: JSON.stringify({ ...patientData, fotoUrl: patientData.photoUrl }),
         });
-        if (res.data) {
-          this.patients.unshift(res.data);
-          return res.data;
-        }
-      } catch (err: any) {
-        console.error('API create patient error:', err);
-      }
-      const fallback: Patient = { ...patientData, id: `pac-${Date.now()}` };
-      this.patients.unshift(fallback);
-      return fallback;
+        if (!res.data) throw new Error('El servidor no devolvió el paciente registrado.');
+        const patient = mapApiPatient(res.data);
+        this.patients.unshift(patient);
+        return patient;
+      } catch (err: any) { throw new Error(err.message || 'Error al registrar el paciente'); }
     },
 
     async updatePatient(id: string, updated: Partial<Patient>) {
-      try {
-        const res = await apiFetch(`/api/pacientes/${id}`, {
-          method: 'PUT',
-          body: JSON.stringify(updated),
-        });
-        if (res.data) {
-          const idx = this.patients.findIndex((p) => p.id === id);
-          if (idx !== -1) this.patients[idx] = res.data;
-          return;
-        }
-      } catch (err) {
-        console.error(err);
-      }
+      const res = await apiFetch(`/api/pacientes/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify({ ...updated, ...(updated.photoUrl !== undefined ? { fotoUrl: updated.photoUrl } : {}) }),
+      });
+      if (!res.data) throw new Error('El servidor no devolvió el paciente actualizado.');
       const idx = this.patients.findIndex((p) => p.id === id);
-      if (idx !== -1) this.patients[idx] = { ...this.patients[idx], ...updated };
+      if (idx !== -1) this.patients[idx] = mapApiPatient(res.data);
     },
 
     async togglePatientStatus(id: string) {
@@ -348,9 +431,7 @@ export const useAppStore = defineStore('app', {
           method: 'PATCH',
           body: JSON.stringify({ estado: nextStatus }),
         });
-      } catch (err) {
-        console.error(err);
-      }
+      } catch (err) { throw err; }
       p.estado = nextStatus;
     },
 
@@ -359,36 +440,23 @@ export const useAppStore = defineStore('app', {
       try {
         const res = await apiFetch('/api/responsables', {
           method: 'POST',
-          body: JSON.stringify(gData),
+          body: JSON.stringify({ ...gData, fotoUrl: gData.photoUrl }),
         });
-        if (res.data) {
-          this.guardians.push(res.data);
-          return res.data;
-        }
-      } catch (err) {
-        console.error(err);
-      }
-      const fallback: Guardian = { ...gData, id: `gua-${Date.now()}` };
-      this.guardians.push(fallback);
-      return fallback;
+        if (!res.data) throw new Error('El servidor no devolvió el responsable registrado.');
+        const guardian = mapApiGuardian(res.data);
+        this.guardians.push(guardian);
+        return guardian;
+      } catch (err) { throw err; }
     },
 
     async updateGuardian(id: string, updated: Partial<Guardian>) {
-      try {
-        const res = await apiFetch(`/api/responsables/${id}`, {
-          method: 'PUT',
-          body: JSON.stringify(updated),
-        });
-        if (res.data) {
-          const idx = this.guardians.findIndex((g) => g.id === id);
-          if (idx !== -1) this.guardians[idx] = res.data;
-          return;
-        }
-      } catch (err) {
-        console.error(err);
-      }
+      const res = await apiFetch(`/api/responsables/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify({ ...updated, ...(updated.photoUrl !== undefined ? { fotoUrl: updated.photoUrl } : {}) }),
+      });
+      if (!res.data) throw new Error('El servidor no devolvió el responsable actualizado.');
       const idx = this.guardians.findIndex((g) => g.id === id);
-      if (idx !== -1) this.guardians[idx] = { ...this.guardians[idx], ...updated };
+      if (idx !== -1) this.guardians[idx] = mapApiGuardian(res.data);
     },
 
     async linkGuardianToPatient(guardianId: string, patientId: string) {
@@ -406,14 +474,10 @@ export const useAppStore = defineStore('app', {
           method: 'POST',
           body: JSON.stringify(srvData),
         });
-        if (res.data) {
-          this.services.push(res.data);
-          return;
-        }
-      } catch (err) {
-        console.error(err);
-      }
-      this.services.push({ ...srvData, id: `srv-${Date.now()}` });
+        if (!res.data) throw new Error('El servidor no devolvió el servicio registrado.');
+        this.services.push(res.data);
+        return;
+      } catch (err) { throw err; }
     },
 
     async updateService(id: string, updated: Partial<ClinicalService>) {
@@ -427,9 +491,7 @@ export const useAppStore = defineStore('app', {
           if (idx !== -1) this.services[idx] = res.data;
           return;
         }
-      } catch (err) {
-        console.error(err);
-      }
+      } catch (err) { throw err; }
       const idx = this.services.findIndex((s) => s.id === id);
       if (idx !== -1) this.services[idx] = { ...this.services[idx], ...updated };
     },
@@ -441,21 +503,10 @@ export const useAppStore = defineStore('app', {
           method: 'POST',
           body: JSON.stringify(req),
         });
-        if (res.data) {
-          this.requests.unshift(res.data);
-          return res.data;
-        }
-      } catch (err) {
-        console.error(err);
-      }
-      const fallback: AppointmentRequest = {
-        ...req,
-        id: `sol-${Date.now()}`,
-        estado: 'PENDIENTE',
-        fechaCreacion: new Date().toISOString(),
-      };
-      this.requests.unshift(fallback);
-      return fallback;
+        if (!res.data) throw new Error('El servidor no devolvió la solicitud registrada.');
+        this.requests.unshift(res.data);
+        return res.data;
+      } catch (err) { throw err; }
     },
 
     async updateRequestStatus(id: string, status: 'PENDIENTE' | 'ATENDIDA' | 'RECHAZADA') {
@@ -464,9 +515,7 @@ export const useAppStore = defineStore('app', {
           method: 'PATCH',
           body: JSON.stringify({ estado: status }),
         });
-      } catch (err) {
-        console.error(err);
-      }
+      } catch (err) { throw err; }
       const r = this.requests.find((req) => req.id === id);
       if (r) r.estado = status;
     },
@@ -478,20 +527,12 @@ export const useAppStore = defineStore('app', {
           method: 'POST',
           body: JSON.stringify(aptData),
         });
-        if (res.data) {
-          this.appointments.unshift(res.data);
-          return res.data;
-        }
+        if (!res.data) throw new Error('El servidor no devolvió la cita programada.');
+        this.appointments.unshift(res.data);
+        return res.data;
       } catch (err: any) {
         throw new Error(err.message || 'Error al programar la cita');
       }
-      const fallback: Appointment = {
-        ...aptData,
-        id: `cit-${Date.now()}`,
-        fechaCreacion: new Date().toISOString(),
-      };
-      this.appointments.unshift(fallback);
-      return fallback;
     },
 
     async updateAppointmentStatus(id: string, status: Appointment['estado']) {
@@ -534,15 +575,36 @@ export const useAppStore = defineStore('app', {
       }
     },
 
+    async checkAppointmentAvailability(input: {
+      pacienteId: string; servicioId: string; profesionalId: string; fecha: string;
+      horaInicio: string; sede: string; idToIgnore?: string;
+    }) {
+      const query = new URLSearchParams();
+      Object.entries(input).forEach(([key, value]) => {
+        if (value) query.set(key, value);
+      });
+      try {
+        const res = await apiFetch(`/api/citas/disponibilidad?${query.toString()}`);
+        return res.data as { available: boolean; message: string; horaFin?: string; precioQ?: number };
+      } catch (err: any) {
+        if (err?.message === 'Cita no encontrada') {
+          throw new Error('El servidor respondió 404 al consultar disponibilidad. Reinicia el backend para cargar la ruta /api/citas/disponibilidad y vuelve a intentar.');
+        }
+        throw err;
+      }
+    },
+
     // --- PAYMENTS & CAJA ---
-    async registerPayment(paymentData: Omit<Payment, 'id' | 'numeroComprobante' | 'fecha'>): Promise<Payment> {
+    async registerPayment(paymentData: {
+      citaId: string; montoQ: number; metodoPago: Payment['metodoPago']; concepto: string; notas?: string;
+    }): Promise<Payment> {
       try {
         const res = await apiFetch('/api/pagos', {
           method: 'POST',
           body: JSON.stringify(paymentData),
         });
-        if (res.data) {
-          this.payments.unshift(res.data);
+        if (!res.data) throw new Error('El servidor no devolvió el pago registrado.');
+        this.payments.unshift(res.data);
 
           // Refresh cash register and appointments
           const cashRes = await apiFetch('/api/cajas/actual').catch(() => null);
@@ -551,22 +613,11 @@ export const useAppStore = defineStore('app', {
           const appsRes = await apiFetch('/api/citas').catch(() => null);
           if (appsRes?.data) this.appointments = appsRes.data;
 
-          return res.data;
-        }
+        return res.data;
       } catch (err: any) {
         throw new Error(err.message || 'Error al registrar el pago');
       }
 
-      const now = new Date();
-      const receiptNum = `REC-2026-${Math.floor(1000 + Math.random() * 9000)}`;
-      const fallback: Payment = {
-        ...paymentData,
-        id: `pag-${Date.now()}`,
-        numeroComprobante: receiptNum,
-        fecha: now.toISOString(),
-      };
-      this.payments.unshift(fallback);
-      return fallback;
     },
 
     async annulPayment(paymentId: string, motivoAnulacion: string) {
@@ -631,14 +682,10 @@ export const useAppStore = defineStore('app', {
           method: 'POST',
           body: JSON.stringify(mat),
         });
-        if (res.data) {
-          this.materials.push(res.data);
-          return res.data;
-        }
-      } catch (err) {
-        console.error(err);
-      }
-      this.materials.push({ ...mat, id: `mat-${Date.now()}`, fechaRegistro: new Date().toISOString() });
+        if (!res.data) throw new Error('El servidor no devolvió el material registrado.');
+        this.materials.push(res.data);
+        return res.data;
+      } catch (err) { throw err; }
     },
 
     async updateMaterial(id: string, updated: Partial<EducationalMaterial>) {
@@ -647,16 +694,11 @@ export const useAppStore = defineStore('app', {
           method: 'PUT',
           body: JSON.stringify(updated),
         });
-        if (res.data) {
-          const idx = this.materials.findIndex((m) => m.id === id);
-          if (idx !== -1) this.materials[idx] = res.data;
-          return;
-        }
-      } catch (err) {
-        console.error(err);
-      }
-      const idx = this.materials.findIndex((m) => m.id === id);
-      if (idx !== -1) this.materials[idx] = { ...this.materials[idx], ...updated };
+        if (!res.data) throw new Error('El servidor no devolvió el material actualizado.');
+        const idx = this.materials.findIndex((m) => m.id === id);
+        if (idx !== -1) this.materials[idx] = res.data;
+        return;
+      } catch (err) { throw err; }
     },
 
     async assignMaterialToPatient(materialId: string, patientId: string) {
@@ -665,21 +707,20 @@ export const useAppStore = defineStore('app', {
           method: 'POST',
           body: JSON.stringify({ pacienteId: patientId }),
         });
-        if (res.data) {
-          const idx = this.materials.findIndex((m) => m.id === materialId);
-          if (idx !== -1) this.materials[idx] = res.data;
-          return;
-        }
+        if (!res.data) throw new Error('El servidor no devolvió la asignación actualizada.');
+        const idx = this.materials.findIndex((m) => m.id === materialId);
+        if (idx !== -1) this.materials[idx] = res.data;
+        return;
       } catch (err: any) {
         throw new Error(err.message || 'Error al asignar material');
       }
     },
 
-    removeMaterialFromPatient(materialId: string, patientId: string) {
+    async removeMaterialFromPatient(materialId: string, patientId: string) {
       const mat = this.materials.find((m) => m.id === materialId);
       if (mat) {
-        mat.assignedPatientIds = mat.assignedPatientIds.filter((id) => id !== patientId);
-        this.updateMaterial(materialId, { assignedPatientIds: mat.assignedPatientIds });
+        const assignedPatientIds = mat.assignedPatientIds.filter((id) => id !== patientId);
+        await this.updateMaterial(materialId, { assignedPatientIds });
       }
     },
 
@@ -706,9 +747,7 @@ export const useAppStore = defineStore('app', {
           this.content = res.data;
           return;
         }
-      } catch (err) {
-        console.error(err);
-      }
+      } catch (err) { throw err; }
       this.content = { ...this.content, ...updated };
     },
 
@@ -718,27 +757,16 @@ export const useAppStore = defineStore('app', {
           method: 'POST',
           body: JSON.stringify(msg),
         });
-        if (res.data) {
-          this.messages.unshift(res.data);
-          return res.data;
-        }
-      } catch (err) {
-        console.error(err);
-      }
-      this.messages.unshift({
-        ...msg,
-        id: `msg-${Date.now()}`,
-        fecha: new Date().toISOString(),
-        leido: false,
-      });
+        if (!res.data) throw new Error('El servidor no devolvió el mensaje registrado.');
+        this.messages.unshift(res.data);
+        return res.data;
+      } catch (err) { throw err; }
     },
 
     async markMessageRead(id: string) {
       try {
         await apiFetch(`/api/contacto/${id}/leer`, { method: 'PATCH' });
-      } catch (err) {
-        console.error(err);
-      }
+      } catch (err) { throw err; }
       const m = this.messages.find((msg) => msg.id === id);
       if (m) m.leido = true;
     },

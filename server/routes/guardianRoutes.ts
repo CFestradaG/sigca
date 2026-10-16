@@ -4,6 +4,15 @@ import { authenticateToken } from '../middleware/auth';
 
 export const guardianRouter = Router();
 
+function validatePhoto(photoUrl: unknown) {
+  if (!photoUrl) return '';
+  const value = String(photoUrl);
+  if (value.length > 850_000 || !/^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(value)) {
+    throw new Error('La fotografía debe ser JPG, PNG o WebP y no superar 600 KB.');
+  }
+  return value;
+}
+
 guardianRouter.use(authenticateToken);
 
 // GET /api/responsables
@@ -14,7 +23,7 @@ guardianRouter.get('/', (_req, res: Response) => {
 
 // GET /api/responsables/:id
 guardianRouter.get('/:id', (req, res: Response) => {
-  const guardian = Repository.getGuardianById(req.params.id);
+  const guardian = Repository.getGuardianById(String(req.params.id));
   if (!guardian) {
     return res.status(404).json({ success: false, message: 'Responsable no encontrado' });
   }
@@ -40,7 +49,7 @@ guardianRouter.post('/', async (req, res: Response) => {
       telefono,
       email: email || '',
       direccion: direccion || '',
-      fotoUrl: fotoUrl || '',
+      fotoUrl: validatePhoto(fotoUrl),
       patientIds: patientIds || [],
     });
 
@@ -57,7 +66,10 @@ guardianRouter.post('/', async (req, res: Response) => {
 // PUT /api/responsables/:id
 guardianRouter.put('/:id', async (req, res: Response) => {
   try {
-    const updated = await Repository.updateGuardian(req.params.id, req.body);
+    const updated = await Repository.updateGuardian(String(req.params.id), {
+      ...req.body,
+      ...(req.body?.fotoUrl !== undefined ? { fotoUrl: validatePhoto(req.body.fotoUrl) } : {}),
+    });
     if (!updated) {
       return res.status(404).json({ success: false, message: 'Responsable no encontrado' });
     }

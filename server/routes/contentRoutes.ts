@@ -35,7 +35,7 @@ scheduleRouter.get('/', (_req, res: Response) => {
 // PUT /api/horarios/:id (Protected ADMIN)
 scheduleRouter.put('/:id', authenticateToken, requireRole(['ADMIN']), async (req, res: Response) => {
   try {
-    const updated = await Repository.updateSchedule(req.params.id, req.body);
+    const updated = await Repository.updateSchedule(String(req.params.id), req.body);
     if (!updated) return res.status(404).json({ success: false, message: 'Horario no encontrado' });
     return res.status(200).json({
       success: true,

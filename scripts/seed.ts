@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import mongoose from 'mongoose';
 import {
   SEED_USERS,
@@ -29,40 +30,37 @@ import { ContentModel } from '../server/models/Content';
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/sigca_armonia';
 
 async function seed() {
-  console.log(`[Seed] Conectando a MongoDB en ${MONGODB_URI}...`);
+  console.log('[Seed] Conectando a MongoDB...');
   try {
     await mongoose.connect(MONGODB_URI);
     console.log('[Seed] Conexión establecida.');
 
-    console.log('[Seed] Limpiando colecciones anteriores...');
-    await Promise.all([
-      UserModel.deleteMany({}),
-      PatientModel.deleteMany({}),
-      GuardianModel.deleteMany({}),
-      ServiceModel.deleteMany({}),
-      AppointmentModel.deleteMany({}),
-      RequestModel.deleteMany({}),
-      MaterialModel.deleteMany({}),
-      PaymentModel.deleteMany({}),
-      CashRegisterModel.deleteMany({}),
-      ScheduleModel.deleteMany({}),
-      ContactMessageModel.deleteMany({}),
-      ContentModel.deleteMany({}),
-    ]);
+    if (process.env.SEED_RESET === 'true') {
+      console.warn('[Seed] SEED_RESET=true: eliminando los datos existentes.');
+      await Promise.all([
+        UserModel.deleteMany({}), PatientModel.deleteMany({}), GuardianModel.deleteMany({}),
+        ServiceModel.deleteMany({}), AppointmentModel.deleteMany({}), RequestModel.deleteMany({}),
+        MaterialModel.deleteMany({}), PaymentModel.deleteMany({}), CashRegisterModel.deleteMany({}),
+        ScheduleModel.deleteMany({}), ContactMessageModel.deleteMany({}), ContentModel.deleteMany({}),
+      ]);
+    }
 
-    console.log('[Seed] Insertando datos de prueba (Sección 11)...');
-    await UserModel.insertMany(SEED_USERS);
-    await PatientModel.insertMany(SEED_PATIENTS);
-    await GuardianModel.insertMany(SEED_GUARDIANS);
-    await ServiceModel.insertMany(SEED_SERVICES);
-    await AppointmentModel.insertMany(SEED_APPOINTMENTS);
-    await RequestModel.insertMany(SEED_REQUESTS);
-    await MaterialModel.insertMany(SEED_MATERIALS);
-    await PaymentModel.insertMany(SEED_PAYMENTS);
-    await CashRegisterModel.insertMany(SEED_CASH_REGISTERS);
-    await ScheduleModel.insertMany(SEED_SCHEDULES);
-    await ContactMessageModel.insertMany(SEED_MESSAGES);
-    await ContentModel.create(SEED_CONTENT);
+    console.log('[Seed] Insertando fixtures únicamente en colecciones vacías...');
+    const seedIfEmpty = async (model: any, rows: any[]) => {
+      if (await model.countDocuments() === 0 && rows.length) await model.insertMany(rows);
+    };
+    await seedIfEmpty(UserModel, SEED_USERS);
+    await seedIfEmpty(PatientModel, SEED_PATIENTS);
+    await seedIfEmpty(GuardianModel, SEED_GUARDIANS);
+    await seedIfEmpty(ServiceModel, SEED_SERVICES);
+    await seedIfEmpty(AppointmentModel, SEED_APPOINTMENTS);
+    await seedIfEmpty(RequestModel, SEED_REQUESTS);
+    await seedIfEmpty(MaterialModel, SEED_MATERIALS);
+    await seedIfEmpty(PaymentModel, SEED_PAYMENTS);
+    await seedIfEmpty(CashRegisterModel, SEED_CASH_REGISTERS);
+    await seedIfEmpty(ScheduleModel, SEED_SCHEDULES);
+    await seedIfEmpty(ContactMessageModel, SEED_MESSAGES);
+    if (await ContentModel.countDocuments() === 0) await ContentModel.create(SEED_CONTENT);
 
     console.log('----------------------------------------------------');
     console.log(' Datos de prueba cargados exitosamente:');
@@ -80,10 +78,11 @@ async function seed() {
     console.log('----------------------------------------------------');
 
     await mongoose.disconnect();
-    process.exit(0);
   } catch (err) {
     console.error('[Seed] Error al sembrar base de datos:', err);
-    process.exit(1);
+    process.exitCode = 1;
+  } finally {
+    await mongoose.disconnect();
   }
 }
 

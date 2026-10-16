@@ -10,9 +10,12 @@ const router = useRouter();
 
 const searchTerm = ref('');
 const showAddPaymentModal = ref(false);
+const paymentError = ref('');
+const isSavingPayment = ref(false);
 
 const formData = ref({
   pacienteId: store.patients[0]?.id || '',
+  citaId: '',
   montoQ: 350.00,
   metodoPago: 'EFECTIVO' as PaymentMethod,
   concepto: 'Pago de sesión terapéutica',
@@ -27,31 +30,52 @@ const selectedPatientBalance = computed(() => {
   return selectedPatient.value ? store.getPatientBalance(selectedPatient.value.id) : { totalCharged: 0, totalPaid: 0, balance: 0 };
 });
 
+const payableAppointments = computed(() => store.getPatientAppointments(formData.value.pacienteId)
+  .filter((apt) => apt.estado !== 'CANCELADA')
+  .map((apt) => ({ ...apt, balance: Math.max(0, apt.precioQ - store.payments
+    .filter((payment) => payment.citaId === apt.id && (payment as any).estado !== 'ANULADO')
+    .reduce((sum, payment) => sum + payment.montoQ, 0)) }))
+  .filter((apt) => apt.balance > 0));
+
+const selectedAppointment = computed(() => payableAppointments.value.find((apt) => apt.id === formData.value.citaId));
+
 const handleOpenAdd = () => {
   formData.value = {
     pacienteId: store.patients[0]?.id || '',
+    citaId: '',
     montoQ: 350.00,
     metodoPago: 'EFECTIVO',
     concepto: 'Pago de sesión terapéutica',
     notas: '',
   };
+  formData.value.citaId = payableAppointments.value[0]?.id || '';
+  formData.value.montoQ = payableAppointments.value[0]?.balance || 0;
+  paymentError.value = '';
   showAddPaymentModal.value = true;
 };
 
 const handleSubmit = async () => {
-  if (!formData.value.pacienteId || formData.value.montoQ <= 0) return;
-
-  const created = await store.registerPayment({
-    pacienteId: formData.value.pacienteId,
-    montoQ: Number(formData.value.montoQ),
-    metodoPago: formData.value.metodoPago,
-    concepto: formData.value.concepto.trim(),
-    notas: formData.value.notas.trim(),
-    atendidoPor: store.currentUser?.name || 'Recepción',
-  });
-
-  showAddPaymentModal.value = false;
-  store.setSelectedPaymentForPrint(created);
+  paymentError.value = '';
+  if (!formData.value.citaId || formData.value.montoQ <= 0) {
+    paymentError.value = 'Selecciona una cita con saldo pendiente e indica un monto mayor a cero.';
+    return;
+  }
+  isSavingPayment.value = true;
+  try {
+    const created = await store.registerPayment({
+      citaId: formData.value.citaId,
+      montoQ: Number(formData.value.montoQ),
+      metodoPago: formData.value.metodoPago,
+      concepto: formData.value.concepto.trim(),
+      notas: formData.value.notas.trim(),
+    });
+    showAddPaymentModal.value = false;
+    store.setSelectedPaymentForPrint(created);
+  } catch (err: any) {
+    paymentError.value = err?.message || 'No se pudo registrar el pago.';
+  } finally {
+    isSavingPayment.value = false;
+  }
 };
 
 const filteredPayments = computed(() => {
@@ -241,6 +265,7 @@ const goToPatient = (patientId: string) => {
             <label class="block font-bold text-[#1d1c16] mb-1">Paciente *</label>
             <select
               v-model="formData.pacienteId"
+              @change="formData.citaId = payableAppointments[0]?.id || ''; formData.montoQ = payableAppointments[0]?.balance || 0"
               class="w-full px-3 py-2 rounded-xl border border-[#bcc9c6] text-xs bg-white"
             >
               <option
@@ -260,12 +285,26 @@ const goToPatient = (patientId: string) => {
           </div>
 
           <div>
+            <label class="block font-bold text-[#1d1c16] mb-1">Cita a pagar *</label>
+            <select v-model="formData.citaId" required @change="formData.montoQ = selectedAppointment?.balance || 0" class="w-full px-3 py-2 rounded-xl border border-[#bcc9c6] text-xs bg-white">
+              <option value="" disabled>Selecciona una cita con saldo</option>
+              <option v-for="apt in payableAppointments" :key="apt.id" :value="apt.id">
+                {{ apt.fecha }} {{ apt.horaInicio }} · {{ store.services.find((s) => s.id === apt.servicioId)?.nombre }} · Saldo Q {{ apt.balance.toFixed(2) }}
+              </option>
+            </select>
+            <p v-if="!payableAppointments.length" class="mt-1 text-[11px] text-[#a33d23]">Este paciente no tiene citas con saldo pendiente.</p>
+          </div>
+
+          <div v-if="paymentError" role="alert" class="p-3 rounded-xl bg-[#ffdad2] text-[#731a04]">{{ paymentError }}</div>
+
+          <div>
             <label class="block font-bold text-[#1d1c16] mb-1">Monto en Quetzales (Q) *</label>
             <input
               type="number"
               required
               step="0.01"
               min="1"
+              :max="selectedAppointment?.balance || undefined"
               v-model="formData.montoQ"
               class="w-full px-3 py-2 rounded-xl border border-[#bcc9c6] text-xs text-base font-bold text-[#00685d]"
             />
@@ -314,9 +353,10 @@ const goToPatient = (patientId: string) => {
             </button>
             <button
               type="submit"
-              class="px-5 py-2 bg-[#00685d] text-white rounded-xl text-xs font-bold shadow-xs"
+              :disabled="isSavingPayment || !payableAppointments.length"
+              class="px-5 py-2 bg-[#00685d] text-white rounded-xl text-xs font-bold shadow-xs disabled:opacity-50"
             >
-              Confirmar Cobro y Emitir
+              {{ isSavingPayment ? 'Registrando…' : 'Confirmar Cobro y Emitir' }}
             </button>
           </div>
         </form>

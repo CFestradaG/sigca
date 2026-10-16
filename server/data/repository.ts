@@ -82,26 +82,48 @@ class DataRepository {
     if (this.isSeededInMongo || !isDbConnected()) return;
 
     try {
-      const userCount = await UserModel.countDocuments();
-      if (userCount === 0) {
-        console.log('[Database] Seeding initial collections in MongoDB...');
-        await UserModel.insertMany(this.users);
-        await ServiceModel.insertMany(this.services);
-        await PatientModel.insertMany(this.patients);
-        await GuardianModel.insertMany(this.guardians);
-        await AppointmentModel.insertMany(this.appointments);
-        await MaterialModel.insertMany(this.materials);
-        await RequestModel.insertMany(this.requests);
-        await CashRegisterModel.insertMany(this.cashRegisters);
-        await PaymentModel.insertMany(this.payments);
-        await ScheduleModel.insertMany(this.schedules);
-        await ContactMessageModel.insertMany(this.messages);
-        await ContentModel.create(this.content);
-        console.log('[Database] MongoDB seeded with 13 collections successfully.');
-      }
+      const seedIfEmpty = async (model: any, rows: any[]) => {
+        if (await model.countDocuments() === 0 && rows.length) await model.insertMany(rows);
+      };
+      await seedIfEmpty(UserModel, this.users);
+      await seedIfEmpty(ServiceModel, this.services);
+      await seedIfEmpty(PatientModel, this.patients);
+      await seedIfEmpty(GuardianModel, this.guardians);
+      await seedIfEmpty(AppointmentModel, this.appointments);
+      await seedIfEmpty(MaterialModel, this.materials);
+      await seedIfEmpty(RequestModel, this.requests);
+      await seedIfEmpty(CashRegisterModel, this.cashRegisters);
+      await seedIfEmpty(PaymentModel, this.payments);
+      await seedIfEmpty(ScheduleModel, this.schedules);
+      await seedIfEmpty(ContactMessageModel, this.messages);
+      if (await ContentModel.countDocuments() === 0) await ContentModel.create(this.content);
+
+      // Hydrate the in-memory domain cache from Mongo so changes survive a restart.
+      const [users, services, patients, guardians, appointments, materials, requests,
+        cashRegisters, payments, schedules, messages, content] = await Promise.all([
+        UserModel.find().lean(), ServiceModel.find().lean(), PatientModel.find().lean(),
+        GuardianModel.find().lean(), AppointmentModel.find().lean(), MaterialModel.find().lean(),
+        RequestModel.find().lean(), CashRegisterModel.find().lean(), PaymentModel.find().lean(),
+        ScheduleModel.find().lean(), ContactMessageModel.find().lean(), ContentModel.findOne().lean(),
+      ]);
+      this.users = users as any;
+      this.services = services as any;
+      this.patients = patients as any;
+      this.guardians = guardians as any;
+      this.appointments = appointments.map((appointment: any) => ({
+        ...appointment,
+        id: String(appointment.id ?? appointment._id),
+      })) as any;
+      this.materials = materials as any;
+      this.requests = requests as any;
+      this.cashRegisters = cashRegisters as any;
+      this.payments = payments as any;
+      this.schedules = schedules as any;
+      this.messages = messages as any;
+      if (content) this.content = content as any;
       this.isSeededInMongo = true;
     } catch (err) {
-      console.warn('[Database] Sync error (will fallback to memory):', err);
+      throw new Error(`No fue posible inicializar los datos desde MongoDB: ${String(err)}`);
     }
   }
 
@@ -127,14 +149,10 @@ class DataRepository {
       ...userData,
       activo: userData.activo !== undefined ? userData.activo : true,
     };
-    this.users.push(newUser);
     if (isDbConnected()) {
-      try {
-        await UserModel.create(newUser);
-      } catch (e) {
-        console.error(e);
-      }
+      await UserModel.create(newUser);
     }
+    this.users.push(newUser);
     const { passwordHash, ...safe } = newUser;
     return safe;
   }
@@ -142,14 +160,10 @@ class DataRepository {
   public async updateUser(id: string, updates: any) {
     const index = this.users.findIndex((u: any) => u.id === id);
     if (index === -1) return null;
-    this.users[index] = { ...this.users[index], ...updates };
     if (isDbConnected()) {
-      try {
-        await UserModel.findOneAndUpdate({ id }, updates);
-      } catch (e) {
-        console.error(e);
-      }
+      await (UserModel as any).findOneAndUpdate({ id }, updates, { runValidators: true });
     }
+    this.users[index] = { ...this.users[index], ...updates };
     const { passwordHash, ...safe } = this.users[index];
     return safe;
   }
@@ -178,9 +192,7 @@ class DataRepository {
     if (isDbConnected()) {
       try {
         await ServiceModel.create(newService);
-      } catch (e) {
-        console.error(e);
-      }
+      } catch (e) { throw e; }
     }
     return newService;
   }
@@ -193,10 +205,8 @@ class DataRepository {
     this.services[idx] = { ...this.services[idx], ...updates };
     if (isDbConnected()) {
       try {
-        await ServiceModel.findOneAndUpdate({ id }, updates);
-      } catch (e) {
-        console.error(e);
-      }
+        await (ServiceModel as any).findOneAndUpdate({ id }, updates);
+      } catch (e) { throw e; }
     }
     return this.services[idx];
   }
@@ -249,6 +259,7 @@ class DataRepository {
       estado: patientData.estado || 'ACTIVO',
       responsableIds: patientData.responsableIds || [],
     };
+    if (isDbConnected()) await PatientModel.create(newPatient);
     this.patients.push(newPatient);
 
     // If responsableIds were supplied, link in guardians
@@ -260,13 +271,6 @@ class DataRepository {
       });
     }
 
-    if (isDbConnected()) {
-      try {
-        await PatientModel.create(newPatient);
-      } catch (e) {
-        console.error(e);
-      }
-    }
     return this.getPatientById(newPatient.id);
   }
 
@@ -274,7 +278,12 @@ class DataRepository {
     const idx = this.patients.findIndex((p: any) => p.id === id);
     if (idx === -1) return null;
 
-    this.patients[idx] = { ...this.patients[idx], ...updates };
+    const updatedPatient = { ...this.patients[idx], ...updates };
+    if (isDbConnected()) {
+      const persisted = await (PatientModel as any).findOneAndUpdate({ id }, updates, { new: true, runValidators: true });
+      if (!persisted) return null;
+    }
+    this.patients[idx] = updatedPatient;
 
     // Update guardian associations if provided
     if (updates.responsableIds) {
@@ -290,13 +299,6 @@ class DataRepository {
       });
     }
 
-    if (isDbConnected()) {
-      try {
-        await PatientModel.findOneAndUpdate({ id }, updates);
-      } catch (e) {
-        console.error(e);
-      }
-    }
     return this.getPatientById(id);
   }
 
@@ -333,6 +335,7 @@ class DataRepository {
       fotoUrl: guardianData.fotoUrl || '',
       patientIds: guardianData.patientIds || [],
     };
+    if (isDbConnected()) await GuardianModel.create(newGuardian);
     this.guardians.push(newGuardian);
 
     // Also link back in patient records
@@ -348,20 +351,18 @@ class DataRepository {
       });
     }
 
-    if (isDbConnected()) {
-      try {
-        await GuardianModel.create(newGuardian);
-      } catch (e) {
-        console.error(e);
-      }
-    }
     return this.getGuardianById(newGuardian.id);
   }
 
   public async updateGuardian(id: string, updates: any) {
     const idx = this.guardians.findIndex((g: any) => g.id === id);
     if (idx === -1) return null;
-    this.guardians[idx] = { ...this.guardians[idx], ...updates };
+    const updatedGuardian = { ...this.guardians[idx], ...updates };
+    if (isDbConnected()) {
+      const persisted = await (GuardianModel as any).findOneAndUpdate({ id }, updates, { new: true, runValidators: true });
+      if (!persisted) return null;
+    }
+    this.guardians[idx] = updatedGuardian;
 
     if (updates.patientIds) {
       this.patients.forEach((p: any) => {
@@ -376,13 +377,6 @@ class DataRepository {
       });
     }
 
-    if (isDbConnected()) {
-      try {
-        await GuardianModel.findOneAndUpdate({ id }, updates);
-      } catch (e) {
-        console.error(e);
-      }
-    }
     return this.getGuardianById(id);
   }
 
@@ -403,7 +397,7 @@ class DataRepository {
   }
 
   public getAppointmentById(id: string) {
-    const app = this.appointments.find((a: any) => a.id === id);
+    const app = this.appointments.find((a: any) => String(a.id ?? a._id) === String(id));
     if (!app) return null;
     return this.hydrateAppointment(app);
   }
@@ -444,9 +438,10 @@ class DataRepository {
     profesionalId: string;
     fecha: string;
     horaInicio: string;
+    sede: string;
     idToIgnore?: string;
   }): { valid: boolean; error?: string; code?: string; calculatedHoraFin?: string; precioQ?: number } {
-    const { pacienteId, servicioId, profesionalId, fecha, horaInicio, idToIgnore } = appointmentData;
+    const { pacienteId, servicioId, profesionalId, fecha, horaInicio, sede, idToIgnore } = appointmentData;
 
     // RN-14 & RN-03: Patient must exist and be ACTIVE
     const patient = this.patients.find((p: any) => p.id === pacienteId);
@@ -487,15 +482,30 @@ class DataRepository {
     if (!prof.activo) {
       return { valid: false, error: 'RN-03: El profesional seleccionado está inactivo', code: 'RN-03' };
     }
+    if (prof.rol !== 'PROFESIONAL' && prof.rol !== 'ADMIN') {
+      return { valid: false, error: 'El usuario seleccionado no puede atender citas.', code: 'RN-03' };
+    }
+
+    const normalizedLocation = (value: string) => {
+      const key = value.toLowerCase();
+      if (key.includes('10') || key.includes('central') || key.includes('sixtino') || key.includes('pradera')) return 'z10';
+      if (key.includes('14') || key.includes('américa') || key.includes('america') || key.includes('europlaza') || key.includes('conchas')) return 'z14';
+      if (key.includes('línea') || key.includes('linea') || key.includes('tele')) return 'online';
+      return '';
+    };
+    if (!normalizedLocation(sede)) {
+      return { valid: false, error: 'Seleccione una sede de atención válida.', code: 'RN-02' };
+    }
 
     // RN-11: Cannot book appointment in past date / time (allow today with past hour check)
     const now = new Date();
-    const todayStr = now.toISOString().split('T')[0];
+    const gtDate = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Guatemala', year: 'numeric', month: '2-digit', day: '2-digit' }).format(now);
+    const todayStr = gtDate;
     if (fecha < todayStr) {
       return { valid: false, error: 'RN-11: No se pueden programar citas en fechas pasadas', code: 'RN-11' };
     }
     if (fecha === todayStr) {
-      const currentHHMM = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+      const currentHHMM = new Intl.DateTimeFormat('en-GB', { timeZone: 'America/Guatemala', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(now);
       if (horaInicio < currentHHMM) {
         return { valid: false, error: 'RN-11: La hora de inicio no puede ser anterior a la hora actual', code: 'RN-11' };
       }
@@ -505,8 +515,8 @@ class DataRepository {
     const calculatedHoraFin = addMinutesToTime(horaInicio, service.duracionMinutos);
 
     // RN-02: Respect schedule hours configured in MongoDB/Repository
-    const dateObj = new Date(`${fecha}T00:00:00`);
-    let dayOfWeekNum = dateObj.getDay(); // 0 is Sunday, 1 is Monday
+    const dateObj = new Date(`${fecha}T00:00:00Z`);
+    let dayOfWeekNum = dateObj.getUTCDay(); // 0 is Sunday, 1 is Monday
     dayOfWeekNum = dayOfWeekNum === 0 ? 7 : dayOfWeekNum; // Map to 1-7
     const schedule = this.schedules.find((s: any) => s.diaNumero === dayOfWeekNum);
 
@@ -561,6 +571,7 @@ class DataRepository {
       profesionalId: appointmentData.profesionalId,
       fecha: appointmentData.fecha,
       horaInicio: appointmentData.horaInicio,
+      sede: appointmentData.sede,
     });
 
     if (!validation.valid) {
@@ -568,7 +579,7 @@ class DataRepository {
     }
 
     const newAppointment = {
-      id: `cit-${Date.now()}`,
+      id: `cit-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       pacienteId: appointmentData.pacienteId,
       servicioId: appointmentData.servicioId,
       profesionalId: appointmentData.profesionalId,
@@ -582,21 +593,16 @@ class DataRepository {
       fechaCreacion: new Date().toISOString().replace('T', ' ').substring(0, 19),
     };
 
-    this.appointments.push(newAppointment);
-
     if (isDbConnected()) {
-      try {
-        await AppointmentModel.create(newAppointment);
-      } catch (e) {
-        console.error(e);
-      }
+      await AppointmentModel.create(newAppointment);
     }
+    this.appointments.push(newAppointment);
 
     return this.getAppointmentById(newAppointment.id);
   }
 
   public async updateAppointment(id: string, updates: any) {
-    const app = this.appointments.find((a: any) => a.id === id);
+    const app = this.appointments.find((a: any) => String(a.id ?? a._id) === String(id));
     if (!app) throw new Error('Cita no encontrada');
 
     // RN-06: Completed appointments CANNOT be rescheduled
@@ -614,6 +620,7 @@ class DataRepository {
         profesionalId: updates.profesionalId || app.profesionalId,
         fecha: updates.fecha || app.fecha,
         horaInicio: updates.horaInicio || app.horaInicio,
+        sede: updates.sede || app.sede,
         idToIgnore: id,
       });
 
@@ -624,22 +631,19 @@ class DataRepository {
       updates.horaFin = validation.calculatedHoraFin;
     }
 
-    const idx = this.appointments.findIndex((a: any) => a.id === id);
-    this.appointments[idx] = { ...this.appointments[idx], ...updates };
-
     if (isDbConnected()) {
-      try {
-        await AppointmentModel.findOneAndUpdate({ id }, updates);
-      } catch (e) {
-        console.error(e);
-      }
+      const persisted = await (AppointmentModel as any).findOneAndUpdate({ id }, updates, { new: true });
+      if (!persisted) throw new Error('Cita no encontrada en la base de datos.');
     }
+
+    const idx = this.appointments.findIndex((a: any) => String(a.id ?? a._id) === String(id));
+    this.appointments[idx] = { ...this.appointments[idx], ...updates };
 
     return this.getAppointmentById(id);
   }
 
   public async changeAppointmentStatus(id: string, newStatus: 'PENDIENTE' | 'CONFIRMADA' | 'COMPLETADA' | 'CANCELADA') {
-    const app = this.appointments.find((a: any) => a.id === id);
+    const app = this.appointments.find((a: any) => String(a.id ?? a._id) === String(id));
     if (!app) throw new Error('Cita no encontrada');
 
     // RN-05: Citas CANCELADAS cannot transition directly to COMPLETADA
@@ -690,9 +694,7 @@ class DataRepository {
     if (isDbConnected()) {
       try {
         await RequestModel.create(newReq);
-      } catch (e) {
-        console.error(e);
-      }
+      } catch (e) { throw e; }
     }
     return newReq;
   }
@@ -705,10 +707,8 @@ class DataRepository {
 
     if (isDbConnected()) {
       try {
-        await RequestModel.findOneAndUpdate({ id }, { estado, citaGeneradaId });
-      } catch (e) {
-        console.error(e);
-      }
+        await (RequestModel as any).findOneAndUpdate({ id }, { estado, citaGeneradaId });
+      } catch (e) { throw e; }
     }
     return this.requests[idx];
   }
@@ -732,28 +732,20 @@ class DataRepository {
       estado: materialData.estado || 'ACTIVO',
       assignedPatientIds: materialData.assignedPatientIds || [],
     };
-    this.materials.push(newMat);
     if (isDbConnected()) {
-      try {
-        await MaterialModel.create(newMat);
-      } catch (e) {
-        console.error(e);
-      }
+      await MaterialModel.create(newMat);
     }
+    this.materials.push(newMat);
     return newMat;
   }
 
   public async updateMaterial(id: string, updates: any) {
     const idx = this.materials.findIndex((m: any) => m.id === id);
     if (idx === -1) return null;
-    this.materials[idx] = { ...this.materials[idx], ...updates };
     if (isDbConnected()) {
-      try {
-        await MaterialModel.findOneAndUpdate({ id }, updates);
-      } catch (e) {
-        console.error(e);
-      }
+      await (MaterialModel as any).findOneAndUpdate({ id }, updates, { runValidators: true });
     }
+    this.materials[idx] = { ...this.materials[idx], ...updates };
     return this.materials[idx];
   }
 
@@ -769,18 +761,15 @@ class DataRepository {
       throw new Error('RN-09: Los materiales solamente pueden asignarse a pacientes activos');
     }
 
-    material.assignedPatientIds = material.assignedPatientIds || [];
-    if (!material.assignedPatientIds.includes(pacienteId)) {
-      material.assignedPatientIds.push(pacienteId);
+    const assignedPatientIds = material.assignedPatientIds || [];
+    if (!assignedPatientIds.includes(pacienteId)) {
+      assignedPatientIds.push(pacienteId);
     }
 
     if (isDbConnected()) {
-      try {
-        await MaterialModel.findOneAndUpdate({ id: materialId }, { assignedPatientIds: material.assignedPatientIds });
-      } catch (e) {
-        console.error(e);
-      }
+      await (MaterialModel as any).findOneAndUpdate({ id: materialId }, { assignedPatientIds }, { runValidators: true });
     }
+    material.assignedPatientIds = assignedPatientIds;
     return material;
   }
 
@@ -833,9 +822,7 @@ class DataRepository {
     if (isDbConnected()) {
       try {
         await CashRegisterModel.create(newCash);
-      } catch (e) {
-        console.error(e);
-      }
+      } catch (e) { throw e; }
     }
     return newCash;
   }
@@ -904,10 +891,8 @@ class DataRepository {
 
     if (isDbConnected()) {
       try {
-        await CashRegisterModel.findOneAndUpdate({ id: cajaId }, caja);
-      } catch (e) {
-        console.error(e);
-      }
+        await (CashRegisterModel as any).findOneAndUpdate({ id: cajaId }, caja);
+      } catch (e) { throw e; }
     }
     return caja;
   }
@@ -1017,10 +1002,8 @@ class DataRepository {
       estado: 'REGISTRADO' as const,
     };
 
-    this.payments.push(newPayment);
-
-    // Add cash movement to the cash register (RN-24)
-    caja.movimientos.push({
+    const updatedCash = JSON.parse(JSON.stringify(caja));
+    updatedCash.movimientos.push({
       id: `mov-${Date.now()}`,
       tipo: 'INGRESO',
       montoQ,
@@ -1030,17 +1013,22 @@ class DataRepository {
       comprobanteRef: voucherNumber,
       pagoId: newPayment.id,
     });
-
-    this.recalculateCashRegister(caja.id);
+    const cajaPayments = [...this.payments.filter((p: any) => p.cajaId === caja.id && p.estado === 'REGISTRADO'), newPayment];
+    updatedCash.totalEfectivoQ = roundQ(cajaPayments.filter((p: any) => p.metodoPago === 'EFECTIVO').reduce((sum: number, p: any) => sum + p.montoQ, 0));
+    updatedCash.totalTransferenciasQ = roundQ(cajaPayments.filter((p: any) => p.metodoPago === 'TRANSFERENCIA').reduce((sum: number, p: any) => sum + p.montoQ, 0));
+    updatedCash.totalTarjetaQ = roundQ(cajaPayments.filter((p: any) => p.metodoPago === 'TARJETA').reduce((sum: number, p: any) => sum + p.montoQ, 0));
+    updatedCash.totalIngresosQ = roundQ(updatedCash.totalEfectivoQ + updatedCash.totalTransferenciasQ + updatedCash.totalTarjetaQ);
+    updatedCash.efectivoEsperadoQ = roundQ(updatedCash.montoInicialQ + updatedCash.totalEfectivoQ);
 
     if (isDbConnected()) {
-      try {
-        await PaymentModel.create(newPayment);
-        await CashRegisterModel.findOneAndUpdate({ id: caja.id }, caja);
-      } catch (e) {
-        console.error(e);
-      }
+      await PaymentModel.create(newPayment);
+      const cashSaved = await (CashRegisterModel as any).findOneAndUpdate({ id: caja.id }, updatedCash, { new: true });
+      if (!cashSaved) throw new Error('No se pudo actualizar la caja del pago.');
     }
+
+    const cashIndex = this.cashRegisters.findIndex((item: any) => item.id === caja.id);
+    if (cashIndex >= 0) this.cashRegisters[cashIndex] = updatedCash;
+    this.payments.push(newPayment);
 
     return this.getPaymentById(newPayment.id);
   }
@@ -1094,11 +1082,9 @@ class DataRepository {
 
     if (isDbConnected()) {
       try {
-        await PaymentModel.findOneAndUpdate({ id: paymentId }, payment);
-        await CashRegisterModel.findOneAndUpdate({ id: caja.id }, caja);
-      } catch (e) {
-        console.error(e);
-      }
+        await (PaymentModel as any).findOneAndUpdate({ id: paymentId }, payment);
+        await (CashRegisterModel as any).findOneAndUpdate({ id: caja.id }, caja);
+      } catch (e) { throw e; }
     }
 
     return payment;
@@ -1113,10 +1099,8 @@ class DataRepository {
     this.content = { ...this.content, ...updates };
     if (isDbConnected()) {
       try {
-        await ContentModel.findOneAndUpdate({ id: 'main-content' }, this.content, { upsert: true });
-      } catch (e) {
-        console.error(e);
-      }
+        await (ContentModel as any).findOneAndUpdate({ id: 'main-content' }, this.content, { upsert: true });
+      } catch (e) { throw e; }
     }
     return this.content;
   }
@@ -1131,10 +1115,8 @@ class DataRepository {
     this.schedules[idx] = { ...this.schedules[idx], ...updates };
     if (isDbConnected()) {
       try {
-        await ScheduleModel.findOneAndUpdate({ id }, updates);
-      } catch (e) {
-        console.error(e);
-      }
+        await (ScheduleModel as any).findOneAndUpdate({ id }, updates);
+      } catch (e) { throw e; }
     }
     return this.schedules[idx];
   }
@@ -1159,9 +1141,7 @@ class DataRepository {
     if (isDbConnected()) {
       try {
         await ContactMessageModel.create(newMsg);
-      } catch (e) {
-        console.error(e);
-      }
+      } catch (e) { throw e; }
     }
     return newMsg;
   }
@@ -1172,10 +1152,8 @@ class DataRepository {
     msg.leido = true;
     if (isDbConnected()) {
       try {
-        await ContactMessageModel.findOneAndUpdate({ id }, { leido: true });
-      } catch (e) {
-        console.error(e);
-      }
+        await (ContactMessageModel as any).findOneAndUpdate({ id }, { leido: true });
+      } catch (e) { throw e; }
     }
     return msg;
   }

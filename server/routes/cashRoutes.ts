@@ -79,7 +79,7 @@ cashRouter.get('/', (req: AuthRequest, res: Response) => {
 
 // GET /api/cajas/:id
 cashRouter.get('/:id', (req, res: Response) => {
-  const caja = Repository.getCashRegisterById(req.params.id);
+  const caja = Repository.getCashRegisterById(String(req.params.id));
   if (!caja) return res.status(404).json({ success: false, message: 'Caja no encontrada' });
 
   // Recalculate totals
@@ -89,7 +89,7 @@ cashRouter.get('/:id', (req, res: Response) => {
 
 // GET /api/cajas/:id/movimientos
 cashRouter.get('/:id/movimientos', (req, res: Response) => {
-  const caja = Repository.getCashRegisterById(req.params.id);
+  const caja = Repository.getCashRegisterById(String(req.params.id));
   if (!caja) return res.status(404).json({ success: false, message: 'Caja no encontrada' });
   return res.status(200).json({ success: true, count: caja.movimientos.length, data: caja.movimientos });
 });
@@ -107,7 +107,7 @@ cashRouter.post('/:id/cerrar', requireRole(['ADMIN', 'RECEPCION']), async (req: 
     }
 
     const closed = await Repository.closeCashRegister(
-      req.params.id,
+      String(req.params.id),
       req.user!.id,
       Number(efectivoContadoQ),
       observaciones

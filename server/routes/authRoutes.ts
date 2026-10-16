@@ -74,3 +74,20 @@ authRouter.get('/me', authenticateToken, (req: AuthRequest, res: Response) => {
     user,
   });
 });
+
+authRouter.patch('/me/avatar', authenticateToken, async (req: AuthRequest, res: Response) => {
+  try {
+    const avatarUrl = String(req.body?.avatarUrl || '');
+    if (avatarUrl && !/^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(avatarUrl)) {
+      return res.status(400).json({ success: false, message: 'La imagen debe ser JPG, PNG o WebP.' });
+    }
+    if (avatarUrl.length > 850_000) {
+      return res.status(413).json({ success: false, message: 'La imagen excede el tamaño permitido de 600 KB.' });
+    }
+    const updated = await Repository.updateUser(req.user!.id, { avatarUrl });
+    if (!updated) return res.status(404).json({ success: false, message: 'Usuario no encontrado.' });
+    return res.status(200).json({ success: true, user: updated });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, message: err.message || 'No se pudo guardar la imagen.' });
+  }
+});

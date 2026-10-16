@@ -25,8 +25,10 @@ const closeVoucherModal = () => {
   store.setSelectedPaymentForPrint(null);
 };
 
-onMounted(() => {
-  store.fetchInitialData();
+onMounted(async () => {
+  if (store.authToken && !store.currentUser) await store.restoreSession();
+  else store.authReady = true;
+  await store.fetchInitialData();
 });
 
 watch(

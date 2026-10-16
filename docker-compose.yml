@@ -1,46 +1,33 @@
-version: '3.8'
-
 services:
   mongo:
-    image: mongo:6.0
-    container_name: sigca-mongodb
-    restart: always
+    image: mongo:8.0
+    restart: unless-stopped
     ports:
-      - '27017:27017'
+      - "127.0.0.1:${MONGO_PORT:-27017}:27017"
     volumes:
       - mongo_data:/data/db
     healthcheck:
-      test: ['CMD', 'mongosh', '--eval', 'db.adminCommand("ping")']
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
       interval: 10s
       timeout: 5s
       retries: 5
-      start_period: 10s
-    networks:
-      - sigca-network
+      start_period: 15s
 
   app:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: sigca-web-api
-    restart: always
-    ports:
-      - '3000:3000'
-    environment:
-      - NODE_ENV=production
-      - PORT=3000
-      - MONGODB_URI=mongodb://mongo:27017/sigca_armonia
-      - JWT_SECRET=sigca_armonia_secret_key_2026_udg
+    restart: unless-stopped
     depends_on:
       mongo:
         condition: service_healthy
-    networks:
-      - sigca-network
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      MONGODB_URI: mongodb://mongo:27017/sigca_armonia
+      JWT_SECRET: ${JWT_SECRET:?Define JWT_SECRET en .env}
+    ports:
+      - "127.0.0.1:${PORT:-3000}:3000"
 
 volumes:
   mongo_data:
-    driver: local
-
-networks:
-  sigca-network:
-    driver: bridge

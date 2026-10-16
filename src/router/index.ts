@@ -126,25 +126,26 @@ export const router = createRouter({
 });
 
 // Interface Navigation Guards (RN-10, RF-02)
-router.beforeEach((to, _from, next) => {
+router.beforeEach(async (to) => {
   const store = useAppStore();
 
   if (to.meta.requiresAuth) {
+    if (store.authToken && !store.currentUser) await store.restoreSession();
     if (!store.currentUser) {
-      // User is not logged in
-      return next({ path: '/inicio', query: { loginRequired: 'true' } });
+      return { path: '/inicio', query: { loginRequired: 'true' } };
     }
 
     if (!store.currentUser.active) {
-      return next({ path: '/inicio', query: { userInactive: 'true' } });
+      store.logout();
+      return { path: '/inicio', query: { userInactive: 'true' } };
     }
 
     const allowedRoles = (to.meta.roles as string[]) || [];
-    if (allowedRoles.length > 0 && !allowedRoles.includes(store.currentUser.role)) {
-      console.warn(`[Guard] Rol ${store.currentUser.role} no tiene acceso a ${to.path}. Redirigiendo a Dashboard.`);
-      return next({ path: '/admin/dashboard', query: { accessDenied: 'true' } });
+    const activeRole = store.activeRoleView || store.currentUser.role;
+    if (allowedRoles.length > 0 && !allowedRoles.includes(activeRole)) {
+      console.warn(`[Guard] Rol activo ${activeRole} no tiene acceso a ${to.path}. Redirigiendo a Dashboard.`);
+      return { path: '/admin/dashboard', query: { accessDenied: 'true' } };
     }
   }
-
-  next();
+  return true;
 });

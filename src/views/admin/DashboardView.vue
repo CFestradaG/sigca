@@ -9,7 +9,14 @@ const router = useRouter();
 const todayStr = '2026-10-10';
 
 const todayAppointments = computed(() => {
-  return store.appointments.filter((a) => a.fecha === todayStr || a.fecha === new Date().toISOString().slice(0, 10));
+  return store.appointments.filter((a) => {
+    if (a.fecha !== todayStr && a.fecha !== new Date().toISOString().slice(0, 10)) return false;
+    const venue = (a.sede || '').toLowerCase();
+    if (store.selectedSite === 'todas') return true;
+    if (store.selectedSite === 'z10') return venue.includes('10') || venue.includes('sixtino');
+    if (store.selectedSite === 'z14') return venue.includes('14') || venue.includes('europlaza') || venue.includes('américa');
+    return venue.includes('línea') || venue.includes('linea') || venue.includes('online');
+  });
 });
 
 const completedToday = computed(() => todayAppointments.value.filter((a) => a.estado === 'COMPLETADA').length);

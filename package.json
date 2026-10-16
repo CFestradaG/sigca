@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "tsx server.ts",
     "start": "tsx server.ts",
-    "build": "vue-tsc --noEmit && vite build",
+    "build": "vue-tsc --noEmit && tsc -p tsconfig.server.json && vite build",
     "preview": "vite preview --host 0.0.0.0 --port 3000",
     "lint": "vue-tsc --noEmit",
     "test": "tsx scripts/test-api.ts",
