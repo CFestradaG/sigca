@@ -1,9 +1,9 @@
 # Mapa del proyecto SIGCA
 
 **Revisado:** 2026-10-16
-**Estado:** se usa el backend integrado `server.ts` como entrada principal. El API alterno de `backend/` permanece parcial y separado. La integración corregida aún necesita una ejecución contra MongoDB para considerarse verificada end-to-end. El build Compose falló en `npm ci` dentro de Docker (`Exit handler never called!`); el build local sí pasa.
+**Estado:** el proyecto tiene un único backend, `server.ts` + `server/`, que es la entrada principal. La antigua API parcial `backend/` fue retirada; la decisión se explica más abajo y en el README. La integración fue verificada con MongoDB (incluido reinicio y producción); el build de la imagen Docker no se pudo validar en este entorno, pero el build local y el arranque con `NODE_ENV=production` sí.
 
-> **Actualización post-P0 (2026-10-16):** se corrigieron el arranque con `NODE_ENV=production`, las brechas de autorización/ownership, el `PUT` de citas, RN-20/RN-25/RN-29, el correlativo y la concurrencia de pagos, la suite de pruebas y la UI de cierre de caja. Verificado con MongoDB real/efímero: `npm test` 22/22, E2E de bloqueantes 43/43 y producción arranca. Detalle en `docs/CORRECCIONES_P0_2026-10-16.md`.
+> **Actualización post-P0 (2026-10-16):** se corrigieron el arranque con `NODE_ENV=production`, las brechas de autorización/ownership, el `PUT` de citas, RN-20/RN-25/RN-29, el correlativo y la concurrencia de pagos, la suite de pruebas y la UI de cierre de caja. Verificado con MongoDB real/efímero: `npm test` 22/22, E2E de bloqueantes 43/43 y producción arranca.
 
 Este documento distingue la consigna académica (`Proyecto_-Sistema-Integral-de-Gestion-de-Citas-y.md`) del estado observado en el código. La consigna define el alcance esperado; este mapa ubica la implementación actual.
 
@@ -26,10 +26,13 @@ flowchart TD
 | Frontend | `src/main.ts`, `src/App.vue` | Vue 3, Pinia, Vue Router, layouts público y administrativo. |
 | Navegación | `src/router/index.ts` | Rutas públicas/privadas y guard por roles; restaura sesión llamando `/api/auth/me`. |
 | Store/API | `src/stores/appStore.ts` | Estado de vistas, token JWT y consumo de rutas relativas `/api`. Las escrituras fallidas no deben convertirse en datos locales exitosos. |
-| Backend activo | `server.ts`, `server/routes/` | Express y Vite en el mismo origen; API de auth, usuarios, pacientes, responsables, servicios, citas, solicitudes, materiales, pagos, cajas, contenido, horarios, contacto y reportes. |
+| Backend único | `server.ts`, `server/routes/` | Express y Vite en el mismo origen; API de auth, usuarios, pacientes, responsables, servicios, citas, solicitudes, materiales, pagos, cajas, contenido, horarios, contacto y reportes. |
 | Persistencia | `server/config/db.ts`, `server/data/repository.ts`, `server/models/` | MongoDB/Mongoose requerido al iniciar; semilla para colecciones vacías y carga de colecciones al caché del repositorio al arrancar. |
-| Backend alterno | `backend/src/` | API parcial de auth, usuarios y servicios; no es el destino de `npm run dev` ni del Compose principal. |
 | Diseño | `docs/07-diseno/` | Prototipos de pantallas y tokens visuales. |
+
+### Backend único
+
+El repositorio llegó a tener dos APIs: `server/` (integrada, usada por `npm run dev`, Docker, frontend y pruebas) y `backend/` (parcial, solo auth/usuarios/servicios en el puerto 4000). `backend/` no aparecía en diagramas ni era referenciado por scripts, Compose, Dockerfile, frontend o tests, y duplicaba contratos. Se retiró para dejar una sola fuente de verdad: `server.ts` + `server/`. El código eliminado sigue disponible en el historial de Git (commit `e86db3c`).
 
 En **Programar Cita**, el frontend admite paciente existente o alta de paciente nuevo; si es menor, solicita los datos obligatorios del responsable y lo asocia. La consulta de disponibilidad es `GET /api/citas/disponibilidad` y está declarada antes de la ruta genérica `GET /api/citas/:id`. Un 404 con el texto `Cita no encontrada` al consultar disponibilidad indica que el proceso backend activo no cargó esta ruta; reinícialo antes de volver a probar.
 
@@ -58,12 +61,12 @@ Correcciones de esta revisión: conexión Mongo obligatoria; carga de datos exis
 
 ## Pendientes relevantes frente a la consigna
 
-1. Ejecutar y corregir build/lint y la suite existente; después validar con Mongo limpio y Mongo con datos previos.
-2. Probar persistencia tras reinicio de todos los módulos y corregir errores que aparezcan.
-3. Revisar atomicidad/concurrencia de pagos, anulaciones y cierres de caja.
-4. Verificar que cada formulario presente errores HTTP al usuario y refresque los datos persistidos.
-5. Completar o retirar el API parcial de `backend/` para evitar dos contratos en el repositorio.
-6. Confirmar que el seed académico cubra los datos mínimos y que las credenciales ficticias estén documentadas.
-7. Añadir evidencia reproducible de la secuencia solicitud → cita → pagos → caja y de autorización por rol.
+1. ✅ Build/lint/suite corregidos y ejecutados; validación con Mongo limpio, con datos previos y tras reinicio.
+2. ✅ Persistencia verificada para pacientes, servicios, contenido, pagos, cajas y solicitud→cita.
+3. ✅ Atomicidad/concurrencia de pagos y cierres corregida para una instancia (cola en proceso, contador atómico y compensación).
+4. ⚠️ Parcial: las acciones principales ya muestran errores; falta revisar formularios secundarios y refresco de datos en todas las vistas.
+5. ✅ API parcial de `backend/` retirada; queda un solo contrato (`server/`).
+6. ✅ Seed académico cubre los mínimos y las credenciales ficticias están documentadas.
+7. ⚠️ Pendiente: evidencias reproducibles (capturas reales) de la secuencia solicitud → cita → pagos → caja y de autorización por rol.
 
 No se considera sistema clínico de producción. Usar únicamente datos ficticios hasta completar las revisiones de privacidad, auditoría y seguridad.

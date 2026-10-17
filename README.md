@@ -3,9 +3,11 @@
 
 > **Centro Armonía**: Especialistas en Psicología Infantil, Neurodesarrollo y Estimulación Auditivo-Verbal (EAV) en Ciudad de Guatemala.
 
-> **Estado de revisión (2026-10-16):** el flujo predeterminado usa `server.ts`, Express, Vite y las rutas de `server/`. `backend/` es otra API parcial y no se inicia con los comandos principales.
+> **Arquitectura:** el proyecto tiene **un solo backend**: `server.ts` + `server/`. La antigua API parcial `backend/` fue retirada para evitar dos contratos y dos instalaciones; la decisión se documenta en [`docs/MAPA_DEL_PROYECTO.md`](docs/MAPA_DEL_PROYECTO.md).
 >
-> **Actualización post-P0 (2026-10-16):** se corrigieron el arranque en producción (Express 5), la autorización/ownership por rol, el `PUT` de citas, RN-20/RN-25/RN-29, el correlativo y la concurrencia de pagos, la suite de pruebas y la UI de cierre de caja. Verificado: `npm test` 22/22, E2E de bloqueantes 43/43, `npm run lint`/`build` OK y `NODE_ENV=production` arranca. Detalle en [`docs/CORRECCIONES_P0_2026-10-16.md`](docs/CORRECCIONES_P0_2026-10-16.md).
+> **Estado de revisión (2026-10-16):** el flujo predeterminado usa `server.ts`, Express, Vite y las rutas de `server/`.
+>
+> **Actualización post-P0 (2026-10-16):** se corrigieron el arranque en producción (Express 5), la autorización/ownership por rol, el `PUT` de citas, RN-20/RN-25/RN-29, el correlativo y la concurrencia de pagos, la suite de pruebas y la UI de cierre de caja. Verificado: `npm test` 22/22, E2E de bloqueantes 43/43, `npm run lint`/`build` OK y `NODE_ENV=production` arranca.
 
 ---
 
@@ -89,7 +91,7 @@ La aplicación estará disponible en `http://localhost:3000`. El servidor requie
 ```bash
 npm test
 ```
-La suite cubre reglas de citas, pagos, caja, autorización financiera y correlativos. Pasa completa (`22/22`); la verificación end-to-end con MongoDB se documenta en `docs/CORRECCIONES_P0_2026-10-16.md`.
+La suite cubre reglas de citas, pagos, caja, autorización financiera y correlativos. Pasa completa (`22/22`).
 
 ---
 
