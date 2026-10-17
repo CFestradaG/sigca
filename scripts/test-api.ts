@@ -40,6 +40,7 @@ async function runTests() {
     profesionalId: 'usr-4',
     fecha: '2026-11-20',
     horaInicio: '10:00',
+    sede: 'Sede Central - Zona 10',
   });
   assert(!valRN04.valid && valRN04.code === 'RN-04', 'Bloquea programación para menor sin responsable registrado');
 
@@ -64,6 +65,7 @@ async function runTests() {
     profesionalId: 'usr-4',
     fecha: overlapDateString,
     horaInicio: '10:00',
+    sede: 'Sede Central - Zona 10',
   });
 
   const valOverlap = Repository.validateAppointmentRules({
@@ -72,6 +74,7 @@ async function runTests() {
     profesionalId: 'usr-4',
     fecha: overlapDateString,
     horaInicio: '10:15', // Overlaps with 10:00-10:45
+    sede: 'Sede Central - Zona 10',
   });
   assert(!valOverlap.valid && valOverlap.code === 'RN-01', 'Bloquea cita traslapada con intervalo ocupado (10:15 vs 10:00-10:45)');
 
@@ -89,6 +92,7 @@ async function runTests() {
     profesionalId: 'usr-4',
     fecha: sundayDate,
     horaInicio: '10:00',
+    sede: 'Sede Central - Zona 10',
   });
   assert(!valSunday.valid && valSunday.code === 'RN-02', 'Bloquea cita en día inhábil / no activo (Domingo)');
 
@@ -101,6 +105,7 @@ async function runTests() {
     profesionalId: 'usr-5',
     fecha: overlapDateString,
     horaInicio: '10:00',
+    sede: 'Sede Central - Zona 10',
   });
   assert(valRN12.calculatedHoraFin === '10:45', 'Hora de fin calculada como 10:45 para servicio de 45 min');
 
@@ -199,6 +204,75 @@ async function runTests() {
   // caj-3 was closed with Q500 expected and Q490 counted -> difference -10
   const caj3 = Repository.getCashRegisterById('caj-3');
   assert(caj3?.diferenciaQ === -10.0, 'caj-3 registró faltante de Q-10.00 en arqueo de cierre');
+
+  // Test 13: RF-07 / RN-05 / RN-27 - el PUT no puede alterar campos protegidos
+  console.log('\n[Test 13] Protección de precio, paciente y estado en citas');
+  let threwImmutablePrice = false;
+  try {
+    await Repository.updateAppointment('cit-2', { precioQ: 1 });
+  } catch (e: any) {
+    threwImmutablePrice = e.message.includes('precioQ');
+  }
+  assert(threwImmutablePrice, 'Rechaza cambiar el precio de una cita existente (RF-07)');
+
+  let threwStatusViaUpdate = false;
+  try {
+    await Repository.updateAppointment('cit-14', { estado: 'COMPLETADA' });
+  } catch (e: any) {
+    threwStatusViaUpdate = e.message.includes('PATCH');
+  }
+  assert(threwStatusViaUpdate, 'Rechaza cambiar estado por PUT (debe usar PATCH / estado)');
+
+  // Test 14: RN-20 - el ADMIN no puede usar la caja de otro usuario
+  console.log('\n[Test 14] RN-20: caja propia del usuario que registra el pago');
+  let threwRN20Admin = false;
+  try {
+    await Repository.registerPayment({
+      citaId: 'cit-9',
+      montoQ: 10,
+      metodoPago: 'EFECTIVO',
+      usuario: { id: 'usr-1', nombre: 'Admin', rol: 'ADMIN' },
+    });
+  } catch (e: any) {
+    threwRN20Admin = e.message.includes('RN-20');
+  }
+  assert(threwRN20Admin, 'El ADMIN sin caja abierta no puede cobrar usando la caja de otro usuario');
+
+  // Test 15: RN-25 - anulación solo por dueño de caja o administrador
+  console.log('\n[Test 15] RN-25: ownership en anulación de pagos');
+  let threwRN25 = false;
+  try {
+    await Repository.annulPayment('pag-1', 'Motivo de prueba cruzada', {
+      id: 'usr-3',
+      nombre: 'Carlos Méndez',
+      rol: 'RECEPCION',
+    });
+  } catch (e: any) {
+    threwRN25 = e.message.includes('RN-25');
+  }
+  assert(threwRN25, 'Impide que otra recepcionista anule pagos de una caja ajena');
+
+  // Test 16: correlativo único y escritura financiera serializada
+  console.log('\n[Test 16] Correlativo único y concurrencia de cobros');
+  const [payA, payB] = await Promise.all([
+    Repository.registerPayment({
+      citaId: 'cit-9',
+      montoQ: 10,
+      metodoPago: 'EFECTIVO',
+      usuario: { id: 'usr-2', nombre: 'Recepción', rol: 'RECEPCION' },
+    }),
+    Repository.registerPayment({
+      citaId: 'cit-10',
+      montoQ: 10,
+      metodoPago: 'EFECTIVO',
+      usuario: { id: 'usr-2', nombre: 'Recepción', rol: 'RECEPCION' },
+    }),
+  ]);
+  assert(!!payA && !!payB, 'Dos cobros simultáneos se procesan sin fallar');
+  assert(
+    payA.numeroComprobante !== payB.numeroComprobante,
+    'Dos cobros simultáneos reciben comprobantes distintos',
+  );
 
   console.log('\n====================================================');
   console.log(` RESULTADOS FINALES: ${passed} PASADAS, ${failed} FALLADAS`);

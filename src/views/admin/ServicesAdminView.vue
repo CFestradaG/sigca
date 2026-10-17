@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue';
+import { ref, computed } from 'vue';
 import { useAppStore } from '../../stores/appStore';
 import { ClinicalService } from '../../types';
 
@@ -7,6 +7,8 @@ const store = useAppStore();
 
 const showModal = ref(false);
 const editingService = ref<ClinicalService | null>(null);
+const errorMessage = ref('');
+const canManageServices = computed(() => store.currentUser?.role === 'ADMIN');
 
 const form = ref({
   nombre: '',
@@ -46,38 +48,49 @@ const handleOpenEdit = (s: ClinicalService) => {
   showModal.value = true;
 };
 
-const handleSubmit = () => {
+const handleSubmit = async () => {
+  if (!canManageServices.value) return;
   if (!form.value.nombre.trim()) return;
 
-  if (editingService.value) {
-    store.updateService(editingService.value.id, {
-      nombre: form.value.nombre.trim(),
-      descripcion: form.value.descripcion.trim(),
-      duracionMinutos: Number(form.value.duracionMinutos),
-      precioQ: Number(form.value.precioQ),
-      imagenUrl: form.value.imagenUrl,
-      estado: form.value.estado,
-      categoria: form.value.categoria,
-    });
-  } else {
-    store.addService({
-      nombre: form.value.nombre.trim(),
-      descripcion: form.value.descripcion.trim(),
-      duracionMinutos: Number(form.value.duracionMinutos),
-      precioQ: Number(form.value.precioQ),
-      imagenUrl: form.value.imagenUrl,
-      estado: form.value.estado,
-      categoria: form.value.categoria,
-    });
+  errorMessage.value = '';
+  try {
+    if (editingService.value) {
+      await store.updateService(editingService.value.id, {
+        nombre: form.value.nombre.trim(),
+        descripcion: form.value.descripcion.trim(),
+        duracionMinutos: Number(form.value.duracionMinutos),
+        precioQ: Number(form.value.precioQ),
+        imagenUrl: form.value.imagenUrl,
+        estado: form.value.estado,
+        categoria: form.value.categoria,
+      });
+    } else {
+      await store.addService({
+        nombre: form.value.nombre.trim(),
+        descripcion: form.value.descripcion.trim(),
+        duracionMinutos: Number(form.value.duracionMinutos),
+        precioQ: Number(form.value.precioQ),
+        imagenUrl: form.value.imagenUrl,
+        estado: form.value.estado,
+        categoria: form.value.categoria,
+      });
+    }
+    showModal.value = false;
+  } catch (err: any) {
+    errorMessage.value = err?.message || 'No se pudo guardar el servicio.';
   }
-
-  showModal.value = false;
 };
 
-const toggleStatus = (s: ClinicalService) => {
-  store.updateService(s.id, {
-    estado: s.estado === 'ACTIVO' ? 'INACTIVO' : 'ACTIVO',
-  });
+const toggleStatus = async (s: ClinicalService) => {
+  if (!canManageServices.value) return;
+  errorMessage.value = '';
+  try {
+    await store.updateService(s.id, {
+      estado: s.estado === 'ACTIVO' ? 'INACTIVO' : 'ACTIVO',
+    });
+  } catch (err: any) {
+    errorMessage.value = err?.message || 'No se pudo cambiar el estado del servicio.';
+  }
 };
 </script>
 
@@ -95,12 +108,17 @@ const toggleStatus = (s: ClinicalService) => {
       </div>
 
       <button
+        v-if="canManageServices"
         @click="handleOpenAdd"
         class="px-4 py-2.5 bg-[#00685d] hover:bg-[#008376] text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-xs transition-colors cursor-pointer self-start sm:self-auto"
       >
         <span class="material-symbols-outlined text-base">add_circle</span>
         <span>Nuevo Servicio</span>
       </button>
+    </div>
+
+    <div v-if="errorMessage" role="alert" class="p-3 rounded-xl bg-[#ffdad2] text-[#731a04] text-xs font-semibold">
+      {{ errorMessage }}
     </div>
 
     <!-- Services Table -->
@@ -153,6 +171,7 @@ const toggleStatus = (s: ClinicalService) => {
 
               <td class="py-3.5 px-4">
                 <button
+                  v-if="canManageServices"
                   @click="toggleStatus(srv)"
                   class="px-2.5 py-0.5 rounded-full text-[10px] font-bold cursor-pointer transition-colors"
                   :class="srv.estado === 'ACTIVO' ? 'bg-[#00685d]/10 text-[#00685d] hover:bg-[#ffdad6] hover:text-[#ba1a1a]' : 'bg-[#ffdad6] text-[#ba1a1a] hover:bg-[#8cf5e4] hover:text-[#005048]'"
@@ -160,10 +179,14 @@ const toggleStatus = (s: ClinicalService) => {
                 >
                   {{ srv.estado }}
                 </button>
+                <span v-else class="px-2.5 py-0.5 rounded-full text-[10px] font-bold" :class="srv.estado === 'ACTIVO' ? 'bg-[#00685d]/10 text-[#00685d]' : 'bg-[#ffdad6] text-[#ba1a1a]'">
+                  {{ srv.estado }}
+                </span>
               </td>
 
               <td class="py-3.5 px-4 text-right whitespace-nowrap">
                 <button
+                  v-if="canManageServices"
                   @click="handleOpenEdit(srv)"
                   class="px-2.5 py-1.5 bg-[#f8f3ea] hover:bg-[#ece8df] border border-[#bcc9c6] text-[#00685d] rounded-lg text-xs font-bold flex items-center gap-1 ml-auto cursor-pointer"
                 >

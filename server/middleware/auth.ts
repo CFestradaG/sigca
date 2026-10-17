@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
+import { Repository } from '../data/repository';
 
 export const JWT_SECRET = process.env.JWT_SECRET || '';
 
@@ -40,7 +41,29 @@ export function authenticateToken(req: AuthRequest, res: Response, next: NextFun
 
   try {
     const decoded = jwt.verify(token, JWT_SECRET) as AuthUser;
-    req.user = decoded;
+
+    // El token no es prueba suficiente: el usuario pudo ser desactivado o
+    // cambiar de rol después de emitido. Se revalida contra la fuente actual.
+    const currentUser = Repository.getUserById(decoded.id);
+    if (!currentUser) {
+      return res.status(401).json({
+        success: false,
+        message: 'Token inválido: el usuario ya no existe.',
+      });
+    }
+    if (!currentUser.activo) {
+      return res.status(403).json({
+        success: false,
+        message: 'RN-08: Su usuario se encuentra inactivo.',
+      });
+    }
+
+    req.user = {
+      id: currentUser.id,
+      nombre: currentUser.nombre,
+      email: currentUser.email,
+      rol: currentUser.rol,
+    };
     next();
   } catch (err) {
     return res.status(401).json({

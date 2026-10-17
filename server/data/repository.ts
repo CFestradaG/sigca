@@ -25,6 +25,7 @@ import { CashRegisterModel } from '../models/CashRegister';
 import { ScheduleModel } from '../models/Schedule';
 import { ContactMessageModel } from '../models/ContactMessage';
 import { ContentModel } from '../models/Content';
+import { CounterModel } from '../models/Counter';
 
 // RN-28: Monetary precision to 2 decimal places using cents rounding
 export function roundQ(amount: number): number {
@@ -58,6 +59,44 @@ export function isOverlapping(start1: string, end1: string, start2: string, end2
   return !(end1 <= start2 || start1 >= end2);
 }
 
+// Business dates must use the clinic timezone, not the server UTC date.
+const GT_TIME_ZONE = 'America/Guatemala';
+
+export function guatemalaDate(date = new Date()): string {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: GT_TIME_ZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(date);
+}
+
+export function guatemalaTime(date = new Date()): string {
+  return new Intl.DateTimeFormat('en-GB', {
+    timeZone: GT_TIME_ZONE,
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).format(date);
+}
+
+export function guatemalaDateTime(date = new Date()): string {
+  return `${guatemalaDate(date)} ${guatemalaTime(date)}:00`;
+}
+
+/**
+ * Quita metadatos de Mongo (_id, __v, timestamps) antes de usar un documento
+ * hidratado como payload de update. Mongoose rechaza modificar `_id`.
+ */
+function withoutMongoMeta<T extends Record<string, any>>(doc: T): Record<string, any> {
+  const clone = JSON.parse(JSON.stringify(doc));
+  delete clone._id;
+  delete clone.__v;
+  delete clone.createdAt;
+  delete clone.updatedAt;
+  return clone;
+}
+
 class DataRepository {
   private users = JSON.parse(JSON.stringify(SEED_USERS));
   private services = JSON.parse(JSON.stringify(SEED_SERVICES));
@@ -74,8 +113,31 @@ class DataRepository {
 
   private isSeededInMongo = false;
 
+  // Correlativo de comprobantes y cola de escritura financiera (RN-17, RN-20, RN-23).
+  // La cola serializa pagos, anulaciones y cierres dentro de este proceso para que
+  // dos cobros simultáneos no lean el mismo saldo ni el mismo correlativo.
+  private voucherSeq = 0;
+  private financeQueue: Promise<unknown> = Promise.resolve();
+
   constructor() {
+    this.voucherSeq = this.maxVoucherSequence(this.payments);
     this.trySyncToMongo();
+  }
+
+  private maxVoucherSequence(payments: any[]): number {
+    return payments.reduce((max: number, payment: any) => {
+      const match = String(payment?.numeroComprobante || '').match(/(\d+)\s*$/);
+      return Math.max(max, match ? Number(match[1]) : 0);
+    }, 0);
+  }
+
+  private enqueueFinance<T>(task: () => Promise<T>): Promise<T> {
+    const run = this.financeQueue.then(task, task);
+    this.financeQueue = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    return run;
   }
 
   public async trySyncToMongo() {
@@ -121,10 +183,34 @@ class DataRepository {
       this.schedules = schedules as any;
       this.messages = messages as any;
       if (content) this.content = content as any;
+      this.voucherSeq = this.maxVoucherSequence(this.payments);
+
+      // Mantiene el contador persistido al menos en el último comprobante existente.
+      const storedCounter: any = await (CounterModel as any).findOne({ _id: 'payment-voucher' }).lean();
+      if (!storedCounter || Number(storedCounter.seq) < this.voucherSeq) {
+        await CounterModel.updateOne(
+          { _id: 'payment-voucher' },
+          { $set: { seq: this.voucherSeq } },
+          { upsert: true },
+        );
+      }
+
       this.isSeededInMongo = true;
     } catch (err) {
       throw new Error(`No fue posible inicializar los datos desde MongoDB: ${String(err)}`);
     }
+  }
+
+  /**
+   * Pacientes que tienen al menos una cita asignada al profesional indicado.
+   * RF-02: el profesional solo consulta información de sus propios pacientes.
+   */
+  public getPatientIdsForProfessional(profesionalId: string): Set<string> {
+    return new Set(
+      this.appointments
+        .filter((appointment: any) => appointment.profesionalId === profesionalId)
+        .map((appointment: any) => appointment.pacienteId),
+    );
   }
 
   // --- USERS ---
@@ -601,9 +687,28 @@ class DataRepository {
     return this.getAppointmentById(newAppointment.id);
   }
 
-  public async updateAppointment(id: string, updates: any) {
+  public async updateAppointment(
+    id: string,
+    updates: any,
+    options: { allowStatusChange?: boolean } = {},
+  ) {
     const app = this.appointments.find((a: any) => String(a.id ?? a._id) === String(id));
     if (!app) throw new Error('Cita no encontrada');
+
+    // RF-07: el precio/costo y el paciente se fijan al programar la cita.
+    const immutableFields = ['precioQ', 'pacienteId', 'fechaCreacion', 'totalPagadoQ', 'saldoPendienteQ', 'estadoFinanciero'];
+    for (const field of immutableFields) {
+      if (updates[field] !== undefined) {
+        throw new Error(
+          `El campo ${field} no puede modificarse en una cita existente. El precio y el paciente se copian al programarla (RF-07).`,
+        );
+      }
+    }
+
+    // El estado solo cambia por la máquina de estados de PATCH /api/citas/:id/estado.
+    if (updates.estado !== undefined && !options.allowStatusChange) {
+      throw new Error('El estado de la cita debe actualizarse con PATCH /api/citas/:id/estado.');
+    }
 
     // RN-06: Completed appointments CANNOT be rescheduled
     if (app.estado === 'COMPLETADA') {
@@ -661,7 +766,7 @@ class DataRepository {
       }
     }
 
-    return this.updateAppointment(id, { estado: newStatus });
+    return this.updateAppointment(id, { estado: newStatus }, { allowStatusChange: true });
   }
 
   // --- APPOINTMENT REQUESTS ---
@@ -790,15 +895,18 @@ class DataRepository {
   }
 
   // RN-22: Each user can only have ONE open cash register at a time
-  public async openCashRegister(usuarioId: string, usuarioNombre: string, montoInicialQ: number) {
+  public openCashRegister(usuarioId: string, usuarioNombre: string, montoInicialQ: number) {
+    return this.enqueueFinance(() => this.openCashRegisterInternal(usuarioId, usuarioNombre, montoInicialQ));
+  }
+
+  private async openCashRegisterInternal(usuarioId: string, usuarioNombre: string, montoInicialQ: number) {
     const existingOpen = this.getUserOpenCashRegister(usuarioId);
     if (existingOpen) {
       throw new Error(`RN-22: El usuario ya tiene una caja abierta (ID: ${existingOpen.id}). Debe cerrarla primero.`);
     }
 
-    const now = new Date();
-    const formattedDate = now.toISOString().split('T')[0];
-    const formattedTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+    const formattedDate = guatemalaDate();
+    const formattedTime = guatemalaTime();
     const initialRounded = roundQ(montoInicialQ || 0);
 
     const newCash = {
@@ -818,12 +926,11 @@ class DataRepository {
       movimientos: [],
     };
 
-    this.cashRegisters.unshift(newCash);
+    // Persistir primero evita dejar una caja "abierta" solo en memoria si Mongo falla.
     if (isDbConnected()) {
-      try {
-        await CashRegisterModel.create(newCash);
-      } catch (e) { throw e; }
+      await CashRegisterModel.create(newCash);
     }
+    this.cashRegisters.unshift(newCash);
     return newCash;
   }
 
@@ -853,7 +960,18 @@ class DataRepository {
     return caja;
   }
 
-  public async closeCashRegister(
+  public closeCashRegister(
+    cajaId: string,
+    usuarioId: string,
+    efectivoContadoQ: number,
+    observaciones?: string,
+  ) {
+    return this.enqueueFinance(() =>
+      this.closeCashRegisterInternal(cajaId, usuarioId, efectivoContadoQ, observaciones),
+    );
+  }
+
+  private async closeCashRegisterInternal(
     cajaId: string,
     usuarioId: string,
     efectivoContadoQ: number,
@@ -867,43 +985,60 @@ class DataRepository {
     }
 
     // RN-25: Authorized user validation
-    if (caja.usuarioId !== usuarioId) {
-      const user = this.users.find((u: any) => u.id === usuarioId);
-      if (user?.rol !== 'ADMIN') {
-        throw new Error('RN-25: Solamente el usuario responsable o un administrador pueden cerrar esta caja');
-      }
+    const closer = this.users.find((u: any) => u.id === usuarioId);
+    if (caja.usuarioId !== usuarioId && closer?.rol !== 'ADMIN') {
+      throw new Error('RN-25: Solamente el usuario responsable o un administrador pueden cerrar esta caja');
     }
 
     this.recalculateCashRegister(cajaId);
 
-    const now = new Date();
-    const formattedDate = now.toISOString().split('T')[0];
-    const formattedTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-    const counted = roundQ(efectivoContadoQ);
+    if (efectivoContadoQ === undefined || efectivoContadoQ === null || Number.isNaN(Number(efectivoContadoQ))) {
+      throw new Error('RN-30: Debe indicar el efectivo contado al cierre');
+    }
+
+    const formattedDateTime = guatemalaDateTime();
+    const formattedTime = guatemalaTime();
+    const counted = roundQ(Number(efectivoContadoQ));
     const diferencia = roundQ(counted - caja.efectivoEsperadoQ);
 
-    caja.estado = 'CERRADA';
-    caja.efectivoContadoQ = counted;
-    caja.diferenciaQ = diferencia;
-    caja.fechaCierre = `${formattedDate} ${formattedTime}:00`;
-    caja.horaCierre = formattedTime;
-    caja.observacionesCierre = observaciones || (diferencia === 0 ? 'Cierre sin diferencias' : `Diferencia de Q${diferencia}`);
+    const closedCaja = {
+      ...caja,
+      estado: 'CERRADA',
+      efectivoContadoQ: counted,
+      diferenciaQ: diferencia,
+      fechaCierre: formattedDateTime,
+      horaCierre: formattedTime,
+      observacionesCierre: observaciones || (diferencia === 0 ? 'Cierre sin diferencias' : `Diferencia de Q${diferencia}`),
+      // RN-29: fecha y usuario responsable del cierre
+      usuarioCierreId: usuarioId,
+      cerradoPor: closer?.nombre || 'Usuario',
+    };
 
+    // Persistir primero; solo actualizar la caché después de que Mongo confirme.
     if (isDbConnected()) {
-      try {
-        await (CashRegisterModel as any).findOneAndUpdate({ id: cajaId }, caja);
-      } catch (e) { throw e; }
+      await (CashRegisterModel as any).findOneAndUpdate({ id: cajaId }, withoutMongoMeta(closedCaja), { new: true });
     }
-    return caja;
+    const idx = this.cashRegisters.findIndex((item: any) => item.id === cajaId);
+    this.cashRegisters[idx] = closedCaja;
+    return closedCaja;
   }
 
   // --- PAYMENTS ---
-  public getPayments(filter?: { pacienteId?: string; citaId?: string; cajaId?: string; fecha?: string }) {
+  public getPayments(filter?: {
+    pacienteId?: string;
+    citaId?: string;
+    cajaId?: string;
+    fecha?: string;
+    metodoPago?: string;
+    estado?: string;
+  }) {
     let result = [...this.payments];
     if (filter?.pacienteId) result = result.filter((p: any) => p.pacienteId === filter.pacienteId);
     if (filter?.citaId) result = result.filter((p: any) => p.citaId === filter.citaId);
     if (filter?.cajaId) result = result.filter((p: any) => p.cajaId === filter.cajaId);
     if (filter?.fecha) result = result.filter((p: any) => p.fecha.startsWith(filter.fecha!));
+    if (filter?.metodoPago) result = result.filter((p: any) => p.metodoPago === filter.metodoPago);
+    if (filter?.estado) result = result.filter((p: any) => p.estado === filter.estado);
 
     return result.map((p: any) => {
       const pac = this.patients.find((pat: any) => pat.id === p.pacienteId);
@@ -928,7 +1063,18 @@ class DataRepository {
     };
   }
 
-  public async registerPayment(paymentData: {
+  public registerPayment(paymentData: {
+    citaId: string;
+    montoQ: number;
+    metodoPago: 'EFECTIVO' | 'TRANSFERENCIA' | 'TARJETA';
+    concepto?: string;
+    notas?: string;
+    usuario: { id: string; nombre: string; rol: string };
+  }) {
+    return this.enqueueFinance(() => this.registerPaymentInternal(paymentData));
+  }
+
+  private async registerPaymentInternal(paymentData: {
     citaId: string;
     montoQ: number;
     metodoPago: 'EFECTIVO' | 'TRANSFERENCIA' | 'TARJETA';
@@ -950,20 +1096,11 @@ class DataRepository {
       throw new Error('RN-15: El pago debe estar asociado a una cita válida existente');
     }
 
-    // RN-20 & RN-21: Payment must link to an OPEN cash register of the user registering it
-    let caja = this.getUserOpenCashRegister(usuario.id);
+    // RN-20 & RN-21: the payment must use an OPEN cash register of the user
+    // who registers it. There is no fallback to another user's register (not even for ADMIN).
+    const caja = this.getUserOpenCashRegister(usuario.id);
     if (!caja) {
-      // If user is Admin and doesn't have an open box, check if there is an active open box or open one
-      if (usuario.rol === 'ADMIN') {
-        const anyOpen = this.cashRegisters.find((c: any) => c.estado === 'ABIERTA');
-        if (anyOpen) {
-          caja = anyOpen;
-        } else {
-          caja = await this.openCashRegister(usuario.id, usuario.nombre, 0);
-        }
-      } else {
-        throw new Error('RN-20: Debe tener una caja diaria ABIERTA antes de registrar pagos. Abra una caja primero.');
-      }
+      throw new Error('RN-20: Debe tener una caja diaria ABIERTA antes de registrar pagos. Abra una caja primero.');
     }
 
     if (caja.estado === 'CERRADA') {
@@ -981,13 +1118,12 @@ class DataRepository {
       );
     }
 
-    const now = new Date();
-    const formattedDateTime = now.toISOString().replace('T', ' ').substring(0, 19);
-    const voucherCount = this.payments.length + 1;
-    const voucherNumber = `REC-2026-${String(voucherCount).padStart(4, '0')}`;
+    const formattedDateTime = guatemalaDateTime();
+    const formattedTime = guatemalaTime();
+    const voucherNumber = await this.nextVoucherNumber();
 
     const newPayment = {
-      id: `pag-${Date.now()}`,
+      id: `pag-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       numeroComprobante: voucherNumber,
       pacienteId: app.pacienteId,
       citaId: app.id,
@@ -1004,11 +1140,11 @@ class DataRepository {
 
     const updatedCash = JSON.parse(JSON.stringify(caja));
     updatedCash.movimientos.push({
-      id: `mov-${Date.now()}`,
+      id: `mov-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       tipo: 'INGRESO',
       montoQ,
       concepto: `${newPayment.concepto} - Comprobante ${voucherNumber}`,
-      hora: `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`,
+      hora: formattedTime,
       metodoPago,
       comprobanteRef: voucherNumber,
       pagoId: newPayment.id,
@@ -1022,8 +1158,14 @@ class DataRepository {
 
     if (isDbConnected()) {
       await PaymentModel.create(newPayment);
-      const cashSaved = await (CashRegisterModel as any).findOneAndUpdate({ id: caja.id }, updatedCash, { new: true });
-      if (!cashSaved) throw new Error('No se pudo actualizar la caja del pago.');
+      try {
+        const cashSaved = await (CashRegisterModel as any).findOneAndUpdate({ id: caja.id }, withoutMongoMeta(updatedCash), { new: true });
+        if (!cashSaved) throw new Error('No se pudo actualizar la caja del pago.');
+      } catch (err) {
+        // Compensación: si la caja no pudo persistirse, el pago no debe quedar registrado.
+        await (PaymentModel as any).deleteOne({ id: newPayment.id }).catch(() => undefined);
+        throw err;
+      }
     }
 
     const cashIndex = this.cashRegisters.findIndex((item: any) => item.id === caja.id);
@@ -1033,8 +1175,40 @@ class DataRepository {
     return this.getPaymentById(newPayment.id);
   }
 
+  /**
+   * Correlativo atómico. En Mongo usa un contador con $inc; sin Mongo usa el
+   * contador en memoria. La cola financeQueue evita que dos cobros lean el
+   * mismo número dentro de este proceso.
+   */
+  private async nextVoucherNumber(): Promise<string> {
+    let seq: number;
+    if (isDbConnected()) {
+      const counter: any = await (CounterModel as any)
+        .findOneAndUpdate(
+          { _id: 'payment-voucher' },
+          { $inc: { seq: 1 } },
+          { new: true, upsert: true, setDefaultsOnInsert: true },
+        )
+        .lean();
+      seq = Number(counter?.seq || 0);
+    } else {
+      this.voucherSeq += 1;
+      seq = this.voucherSeq;
+    }
+    this.voucherSeq = Math.max(this.voucherSeq, seq);
+    return `REC-2026-${String(seq).padStart(4, '0')}`;
+  }
+
   // RN-19, RN-27, RN-29: Justified annulment of payment in an OPEN register
-  public async annulPayment(
+  public annulPayment(
+    paymentId: string,
+    motivoAnulacion: string,
+    usuario: { id: string; nombre: string; rol: string }
+  ) {
+    return this.enqueueFinance(() => this.annulPaymentInternal(paymentId, motivoAnulacion, usuario));
+  }
+
+  private async annulPaymentInternal(
     paymentId: string,
     motivoAnulacion: string,
     usuario: { id: string; nombre: string; rol: string }
@@ -1058,34 +1232,61 @@ class DataRepository {
       );
     }
 
-    const now = new Date();
-    const formattedDateTime = now.toISOString().replace('T', ' ').substring(0, 19);
+    // RN-25 / segregación de funciones: solo el dueño de la caja o un ADMIN.
+    if (usuario.rol !== 'ADMIN' && caja.usuarioId !== usuario.id) {
+      throw new Error(
+        'RN-25: Solamente el usuario responsable de la caja o un administrador pueden anular este pago.',
+      );
+    }
 
-    payment.estado = 'ANULADO';
-    payment.motivoAnulacion = motivoAnulacion;
-    payment.anuladoPor = usuario.nombre;
-    payment.fechaAnulacion = formattedDateTime;
+    const originalPayment = JSON.parse(JSON.stringify(payment));
+    const originalCaja = JSON.parse(JSON.stringify(caja));
 
-    // Remove or balance cash register movement
-    caja.movimientos.push({
-      id: `mov-anul-${Date.now()}`,
+    const updatedPayment = {
+      ...payment,
+      estado: 'ANULADO',
+      motivoAnulacion,
+      anuladoPor: usuario.nombre,
+      fechaAnulacion: guatemalaDateTime(),
+    };
+
+    const updatedCaja = JSON.parse(JSON.stringify(caja));
+    updatedCaja.movimientos.push({
+      id: `mov-anul-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       tipo: 'EGRESO',
       montoQ: payment.montoQ,
       concepto: `ANULACIÓN de Comprobante ${payment.numeroComprobante}: ${motivoAnulacion}`,
-      hora: `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`,
+      hora: guatemalaTime(),
       metodoPago: payment.metodoPago,
       comprobanteRef: payment.numeroComprobante,
       pagoId: payment.id,
     });
 
-    this.recalculateCashRegister(caja.id);
+    // Recalcular totales de la caja sin este pago.
+    const validPayments = this.payments.filter(
+      (p: any) => p.cajaId === caja.id && p.estado === 'REGISTRADO' && p.id !== payment.id,
+    );
+    updatedCaja.totalEfectivoQ = roundQ(validPayments.filter((p: any) => p.metodoPago === 'EFECTIVO').reduce((sum: number, p: any) => sum + p.montoQ, 0));
+    updatedCaja.totalTransferenciasQ = roundQ(validPayments.filter((p: any) => p.metodoPago === 'TRANSFERENCIA').reduce((sum: number, p: any) => sum + p.montoQ, 0));
+    updatedCaja.totalTarjetaQ = roundQ(validPayments.filter((p: any) => p.metodoPago === 'TARJETA').reduce((sum: number, p: any) => sum + p.montoQ, 0));
+    updatedCaja.totalIngresosQ = roundQ(updatedCaja.totalEfectivoQ + updatedCaja.totalTransferenciasQ + updatedCaja.totalTarjetaQ);
+    updatedCaja.efectivoEsperadoQ = roundQ(updatedCaja.montoInicialQ + updatedCaja.totalEfectivoQ);
 
     if (isDbConnected()) {
       try {
-        await (PaymentModel as any).findOneAndUpdate({ id: paymentId }, payment);
-        await (CashRegisterModel as any).findOneAndUpdate({ id: caja.id }, caja);
-      } catch (e) { throw e; }
+        await (PaymentModel as any).findOneAndUpdate({ id: paymentId }, withoutMongoMeta(updatedPayment));
+        await (CashRegisterModel as any).findOneAndUpdate({ id: caja.id }, withoutMongoMeta(updatedCaja));
+      } catch (err) {
+        // Compensación para no dejar pago y caja en estados distintos.
+        await (PaymentModel as any).findOneAndUpdate({ id: paymentId }, withoutMongoMeta(originalPayment)).catch(() => undefined);
+        await (CashRegisterModel as any).findOneAndUpdate({ id: caja.id }, withoutMongoMeta(originalCaja)).catch(() => undefined);
+        throw err;
+      }
     }
+
+    Object.assign(payment, updatedPayment);
+    const cashIndex = this.cashRegisters.findIndex((item: any) => item.id === caja.id);
+    if (cashIndex >= 0) this.cashRegisters[cashIndex] = updatedCaja;
 
     return payment;
   }
@@ -1099,7 +1300,7 @@ class DataRepository {
     this.content = { ...this.content, ...updates };
     if (isDbConnected()) {
       try {
-        await (ContentModel as any).findOneAndUpdate({ id: 'main-content' }, this.content, { upsert: true });
+        await (ContentModel as any).findOneAndUpdate({ id: 'main-content' }, withoutMongoMeta(this.content), { upsert: true });
       } catch (e) { throw e; }
     }
     return this.content;
@@ -1162,7 +1363,7 @@ class DataRepository {
   public getDashboardMetrics() {
     const totalPacientes = this.patients.filter((p: any) => p.estado === 'ACTIVO').length;
     const totalCitasHoy = this.appointments.filter(
-      (a: any) => a.fecha === new Date().toISOString().split('T')[0] && a.estado !== 'CANCELADA'
+      (a: any) => a.fecha === guatemalaDate() && a.estado !== 'CANCELADA'
     ).length;
     const solicitudesPendientes = this.requests.filter((r: any) => r.estado === 'PENDIENTE').length;
     const validPayments = this.payments.filter((p: any) => p.estado === 'REGISTRADO');

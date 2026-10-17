@@ -1,6 +1,6 @@
 import { Router, Response } from 'express';
 import { Repository } from '../data/repository';
-import { authenticateToken } from '../middleware/auth';
+import { authenticateToken, requireRole, AuthRequest } from '../middleware/auth';
 
 export const guardianRouter = Router();
 
@@ -16,22 +16,46 @@ function validatePhoto(photoUrl: unknown) {
 guardianRouter.use(authenticateToken);
 
 // GET /api/responsables
-guardianRouter.get('/', (_req, res: Response) => {
-  const list = Repository.getGuardians();
+guardianRouter.get('/', (req: AuthRequest, res: Response) => {
+  let list = Repository.getGuardians();
+
+  // RF-02: el profesional solo accede a responsables de sus propios pacientes.
+  if (req.user?.rol === 'PROFESIONAL') {
+    const assigned = Repository.getPatientIdsForProfessional(req.user.id);
+    list = list.filter((guardian: any) =>
+      (guardian.patientIds || []).some((patientId: string) => assigned.has(patientId)) ||
+      (guardian.pacientesAsociados || []).some((patient: any) => assigned.has(patient.id)),
+    );
+  }
+
   return res.status(200).json({ success: true, count: list.length, data: list });
 });
 
 // GET /api/responsables/:id
-guardianRouter.get('/:id', (req, res: Response) => {
-  const guardian = Repository.getGuardianById(String(req.params.id));
+guardianRouter.get('/:id', (req: AuthRequest, res: Response) => {
+  const guardian: any = Repository.getGuardianById(String(req.params.id));
   if (!guardian) {
     return res.status(404).json({ success: false, message: 'Responsable no encontrado' });
   }
+
+  if (req.user?.rol === 'PROFESIONAL') {
+    const assigned = Repository.getPatientIdsForProfessional(req.user.id);
+    const related =
+      (guardian.patientIds || []).some((patientId: string) => assigned.has(patientId)) ||
+      (guardian.pacientesAsociados || []).some((patient: any) => assigned.has(patient.id));
+    if (!related) {
+      return res.status(403).json({
+        success: false,
+        message: 'RF-02: El profesional solo puede consultar responsables de sus pacientes.',
+      });
+    }
+  }
+
   return res.status(200).json({ success: true, data: guardian });
 });
 
 // POST /api/responsables
-guardianRouter.post('/', async (req, res: Response) => {
+guardianRouter.post('/', requireRole(['ADMIN', 'RECEPCION']), async (req, res: Response) => {
   try {
     const { nombres, apellidos, parentesco, telefono, email, direccion, fotoUrl, patientIds } = req.body;
 
@@ -64,7 +88,7 @@ guardianRouter.post('/', async (req, res: Response) => {
 });
 
 // PUT /api/responsables/:id
-guardianRouter.put('/:id', async (req, res: Response) => {
+guardianRouter.put('/:id', requireRole(['ADMIN', 'RECEPCION']), async (req, res: Response) => {
   try {
     const updated = await Repository.updateGuardian(String(req.params.id), {
       ...req.body,

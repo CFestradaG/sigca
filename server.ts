@@ -63,6 +63,11 @@ async function startServer() {
     });
   });
 
+  // Any unknown API route must return JSON 404 (never the SPA HTML).
+  app.use('/api', (_req, res) => {
+    res.status(404).json({ success: false, message: 'Recurso de API no encontrado' });
+  });
+
   // Frontend Serving (SPA integration)
   const isProduction = process.env.NODE_ENV === 'production';
 
@@ -75,10 +80,11 @@ async function startServer() {
     });
     app.use(vite.middlewares);
   } else {
-    // In production: serve static build
+    // In production: serve static build. Express 5 rejects app.get('*'),
+    // so the SPA fallback uses a plain middleware instead.
     const distPath = path.resolve(__dirname, 'dist');
     app.use(express.static(distPath));
-    app.get('*', (_req, res) => {
+    app.use((_req, res) => {
       res.sendFile(path.resolve(distPath, 'index.html'));
     });
   }

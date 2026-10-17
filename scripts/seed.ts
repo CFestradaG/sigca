@@ -26,6 +26,7 @@ import { CashRegisterModel } from '../server/models/CashRegister';
 import { ScheduleModel } from '../server/models/Schedule';
 import { ContactMessageModel } from '../server/models/ContactMessage';
 import { ContentModel } from '../server/models/Content';
+import { CounterModel } from '../server/models/Counter';
 
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/sigca_armonia';
 
@@ -42,6 +43,7 @@ async function seed() {
         ServiceModel.deleteMany({}), AppointmentModel.deleteMany({}), RequestModel.deleteMany({}),
         MaterialModel.deleteMany({}), PaymentModel.deleteMany({}), CashRegisterModel.deleteMany({}),
         ScheduleModel.deleteMany({}), ContactMessageModel.deleteMany({}), ContentModel.deleteMany({}),
+        CounterModel.deleteMany({}),
       ]);
     }
 
@@ -61,6 +63,13 @@ async function seed() {
     await seedIfEmpty(ScheduleModel, SEED_SCHEDULES);
     await seedIfEmpty(ContactMessageModel, SEED_MESSAGES);
     if (await ContentModel.countDocuments() === 0) await ContentModel.create(SEED_CONTENT);
+
+    // El correlativo debe continuar después de los comprobantes sembrados.
+    await CounterModel.updateOne(
+      { _id: 'payment-voucher' },
+      { $set: { seq: SEED_PAYMENTS.length } },
+      { upsert: true },
+    );
 
     console.log('----------------------------------------------------');
     console.log(' Datos de prueba cargados exitosamente:');

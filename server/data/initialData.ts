@@ -725,6 +725,8 @@ export const SEED_CASH_REGISTERS = [
     fechaCierre: '2026-10-14 18:05:00',
     horaCierre: '18:05',
     observacionesCierre: 'Cuadre perfecto de caja vespertina.',
+    usuarioCierreId: 'usr-2',
+    cerradoPor: 'María José Estrada',
     movimientos: [
       {
         id: 'mov-4',
@@ -777,6 +779,8 @@ export const SEED_CASH_REGISTERS = [
     fechaCierre: '2026-10-13 18:00:00',
     horaCierre: '18:00',
     observacionesCierre: 'Faltante de Q10.00 registrado por redondeo en cambio de transporte.',
+    usuarioCierreId: 'usr-3',
+    cerradoPor: 'Carlos Méndez',
     movimientos: [
       {
         id: 'mov-7',

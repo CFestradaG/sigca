@@ -11,7 +11,6 @@ import {
   EducationalMaterial,
   InstitutionalContent,
   ContactMessage,
-  CashMovement,
 } from '../types';
 import {
   initialUsers,
@@ -41,6 +40,27 @@ function getStoredToken(): string | null {
 function getStoredUser(): User | null {
   // A browser cache is not proof of identity. The server session is restored via /auth/me.
   return null;
+}
+
+function emptyCashRegister(): DailyCashRegister {
+  return {
+    id: '',
+    usuarioId: '',
+    fecha: '',
+    fechaApertura: '',
+    estado: 'CERRADA',
+    montoInicialQ: 0,
+    usuarioNombre: '',
+    horaApertura: '',
+    totalEfectivoQ: 0,
+    totalTransferenciasQ: 0,
+    totalTarjetaQ: 0,
+    totalIngresosQ: 0,
+    efectivoEsperadoQ: 0,
+    efectivoContadoQ: undefined,
+    diferenciaQ: undefined,
+    movimientos: [],
+  };
 }
 
 function mapApiUser(user: any): User {
@@ -126,8 +146,16 @@ export const useAppStore = defineStore('app', {
   actions: {
     async fetchInitialData() {
       this.isLoadingData = true;
+      const role = this.currentUser?.role;
+      const isAdmin = role === 'ADMIN';
+      const canSeeFinance = role === 'ADMIN' || role === 'RECEPCION';
+      const canSeeRequests = canSeeFinance;
+      const canSeeMessages = role === 'ADMIN' || role === 'RECEPCION';
+      const usersEndpoint = isAdmin ? '/api/usuarios' : '/api/usuarios/directorio';
+
       try {
-        // Fetch all primary collections in parallel from API
+        // Solo se consultan los módulos que el rol puede ver. Así la interfaz no
+        // conserva fixtures financieros ficticios cuando la API responde 403.
         const [
           servicesRes,
           contentRes,
@@ -146,12 +174,14 @@ export const useAppStore = defineStore('app', {
           apiFetch('/api/pacientes'),
           apiFetch('/api/responsables'),
           apiFetch('/api/citas'),
-          apiFetch('/api/solicitudes-cita'),
-          apiFetch('/api/pagos'),
-          apiFetch('/api/cajas/actual'),
+          canSeeRequests ? apiFetch('/api/solicitudes-cita') : Promise.resolve({ success: true, data: [] }),
+          canSeeFinance ? apiFetch('/api/pagos') : Promise.resolve({ success: true, data: [] }),
+          canSeeFinance
+            ? apiFetch('/api/cajas/actual')
+            : Promise.resolve({ success: true, hasOpenRegister: false, data: null }),
           apiFetch('/api/materiales'),
-          apiFetch('/api/contacto'),
-          apiFetch('/api/usuarios'),
+          canSeeMessages ? apiFetch('/api/contacto') : Promise.resolve({ success: true, data: [] }),
+          apiFetch(usersEndpoint),
         ]);
 
         if (servicesRes.status === 'fulfilled' && servicesRes.value.data) {
@@ -169,28 +199,30 @@ export const useAppStore = defineStore('app', {
         if (appointmentsRes.status === 'fulfilled' && appointmentsRes.value.data) {
           this.appointments = appointmentsRes.value.data;
         }
-        if (requestsRes.status === 'fulfilled' && requestsRes.value.data) {
-          this.requests = requestsRes.value.data;
+        if (requestsRes.status === 'fulfilled') {
+          this.requests = requestsRes.value.data || [];
         }
-        if (paymentsRes.status === 'fulfilled' && paymentsRes.value.data) {
-          this.payments = paymentsRes.value.data;
+        if (paymentsRes.status === 'fulfilled') {
+          this.payments = paymentsRes.value.data || [];
         }
-        if (cashRes.status === 'fulfilled' && cashRes.value.data) {
-          this.cashRegister = cashRes.value.data;
+        if (cashRes.status === 'fulfilled') {
+          this.cashRegister = cashRes.value?.data ? cashRes.value.data : emptyCashRegister();
+        } else {
+          this.cashRegister = emptyCashRegister();
         }
         if (materialsRes.status === 'fulfilled' && materialsRes.value.data) {
           this.materials = materialsRes.value.data;
         }
-        if (messagesRes.status === 'fulfilled' && messagesRes.value.data) {
-          this.messages = messagesRes.value.data;
+        if (messagesRes.status === 'fulfilled') {
+          this.messages = messagesRes.value.data || [];
         }
         if (usersRes.status === 'fulfilled' && usersRes.value.data) {
           this.users = usersRes.value.data.map((u: any) => ({
             id: u.id,
             name: u.nombre,
-            email: u.email,
+            email: u.email || '',
             role: u.rol,
-            active: u.activo,
+            active: u.activo !== undefined ? u.activo : true,
             phone: u.telefono,
             specialty: u.especialidad,
             avatarUrl: u.avatarUrl,
@@ -203,6 +235,15 @@ export const useAppStore = defineStore('app', {
         console.error('No se pudieron cargar los datos del servidor:', err);
       } finally {
         this.isLoadingData = false;
+      }
+    },
+
+    async fetchCashRegisters() {
+      try {
+        const res = await apiFetch('/api/cajas');
+        if (res.data) this.allCashRegisters = res.data;
+      } catch (err) {
+        console.error('No se pudo cargar el historial de cajas:', err);
       }
     },
 
@@ -722,18 +763,6 @@ export const useAppStore = defineStore('app', {
         const assignedPatientIds = mat.assignedPatientIds.filter((id) => id !== patientId);
         await this.updateMaterial(materialId, { assignedPatientIds });
       }
-    },
-
-    addCashMovement(mov: Omit<CashMovement, 'id' | 'hora'>) {
-      const now = new Date();
-      const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-      const newMovement: CashMovement = {
-        ...mov,
-        id: `mov-${Date.now()}`,
-        hora: timeStr,
-      };
-      this.cashRegister.movimientos = this.cashRegister.movimientos || [];
-      this.cashRegister.movimientos.unshift(newMovement);
     },
 
     // --- CONTENT & CONTACT ---

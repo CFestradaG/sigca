@@ -1,6 +1,6 @@
 import { Router, Response } from 'express';
 import { Repository } from '../data/repository';
-import { authenticateToken, AuthRequest } from '../middleware/auth';
+import { authenticateToken, requireRole, AuthRequest } from '../middleware/auth';
 
 export const appointmentRouter = Router();
 
@@ -42,16 +42,25 @@ appointmentRouter.get('/', (req: AuthRequest, res: Response) => {
 });
 
 // GET /api/citas/:id
-appointmentRouter.get('/:id', (req, res: Response) => {
+appointmentRouter.get('/:id', (req: AuthRequest, res: Response) => {
   const app = Repository.getAppointmentById(String(req.params.id));
   if (!app) {
     return res.status(404).json({ success: false, message: 'Cita no encontrada' });
   }
+
+  // RF-02: el profesional solo consulta citas asignadas a él.
+  if (req.user?.rol === 'PROFESIONAL' && app.profesionalId !== req.user.id) {
+    return res.status(403).json({
+      success: false,
+      message: 'RF-02: El profesional solo puede consultar sus propias citas asignadas.',
+    });
+  }
+
   return res.status(200).json({ success: true, data: app });
 });
 
-// POST /api/citas
-appointmentRouter.post('/', async (req, res: Response) => {
+// POST /api/citas (solo ADMIN/RECEPCIÓN programan citas)
+appointmentRouter.post('/', requireRole(['ADMIN', 'RECEPCION']), async (req, res: Response) => {
   try {
     const { pacienteId, servicioId, profesionalId, fecha, horaInicio, observaciones, sede } = req.body;
 
@@ -85,10 +94,27 @@ appointmentRouter.post('/', async (req, res: Response) => {
   }
 });
 
-// PUT /api/citas/:id (Reschedule or modify)
-appointmentRouter.put('/:id', async (req, res: Response) => {
+// PUT /api/citas/:id (reprogramar / modificar datos operativos)
+// El precio, el paciente y el estado NO se modifican por esta vía (RF-07, RN-05, RN-27).
+appointmentRouter.put('/:id', requireRole(['ADMIN', 'RECEPCION']), async (req, res: Response) => {
   try {
-    const updated = await Repository.updateAppointment(String(req.params.id), req.body);
+    const allowedFields = ['fecha', 'horaInicio', 'servicioId', 'profesionalId', 'sede', 'observaciones'];
+    const unexpectedFields = Object.keys(req.body || {}).filter((field) => !allowedFields.includes(field));
+    if (unexpectedFields.length > 0) {
+      return res.status(400).json({
+        success: false,
+        message: `No se puede modificar por PUT: ${unexpectedFields.join(', ')}. El precio y el paciente se fijan al programar la cita y el estado se cambia con PATCH /api/citas/:id/estado.`,
+      });
+    }
+
+    const updates = Object.fromEntries(
+      Object.entries(req.body || {}).filter(([field]) => allowedFields.includes(field)),
+    );
+    if (Object.keys(updates).length === 0) {
+      return res.status(400).json({ success: false, message: 'No se enviaron campos modificables.' });
+    }
+
+    const updated = await Repository.updateAppointment(String(req.params.id), updates);
     return res.status(200).json({
       success: true,
       message: 'Cita reprogramada exitosamente',
@@ -113,7 +139,26 @@ appointmentRouter.patch('/:id/estado', async (req: AuthRequest, res: Response) =
       });
     }
 
-    // Role check: PROFESIONAL can mark as COMPLETADA (RF-02)
+    // RF-02: el PROFESIONAL solo puede marcar COMPLETADA una cita propia.
+    if (req.user?.rol === 'PROFESIONAL') {
+      const appointment = Repository.getAppointmentById(String(req.params.id));
+      if (!appointment) {
+        return res.status(404).json({ success: false, message: 'Cita no encontrada' });
+      }
+      if (appointment.profesionalId !== req.user.id) {
+        return res.status(403).json({
+          success: false,
+          message: 'RF-02: El profesional solo puede actualizar sus propias citas.',
+        });
+      }
+      if (estado !== 'COMPLETADA') {
+        return res.status(403).json({
+          success: false,
+          message: 'RF-02: El profesional únicamente puede marcar sus citas como COMPLETADA.',
+        });
+      }
+    }
+
     const updated = await Repository.changeAppointmentStatus(String(req.params.id), estado);
     return res.status(200).json({
       success: true,
@@ -128,14 +173,14 @@ appointmentRouter.patch('/:id/estado', async (req: AuthRequest, res: Response) =
   }
 });
 
-// GET /api/citas/:id/pagos
-appointmentRouter.get('/:id/pagos', (req, res: Response) => {
+// GET /api/citas/:id/pagos (datos financieros: solo ADMIN/RECEPCIÓN)
+appointmentRouter.get('/:id/pagos', requireRole(['ADMIN', 'RECEPCION']), (req, res: Response) => {
   const pagos = Repository.getPayments({ citaId: String(req.params.id) });
   return res.status(200).json({ success: true, count: pagos.length, data: pagos });
 });
 
-// GET /api/citas/:id/saldo
-appointmentRouter.get('/:id/saldo', (req, res: Response) => {
+// GET /api/citas/:id/saldo (datos financieros: solo ADMIN/RECEPCIÓN)
+appointmentRouter.get('/:id/saldo', requireRole(['ADMIN', 'RECEPCION']), (req, res: Response) => {
   const app = Repository.getAppointmentById(String(req.params.id));
   if (!app) {
     return res.status(404).json({ success: false, message: 'Cita no encontrada' });

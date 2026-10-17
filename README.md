@@ -3,7 +3,9 @@
 
 > **Centro Armonía**: Especialistas en Psicología Infantil, Neurodesarrollo y Estimulación Auditivo-Verbal (EAV) en Ciudad de Guatemala.
 
-> **Estado de revisión (2026-10-16):** el flujo predeterminado usa `server.ts`, Express, Vite y las rutas de `server/`. `backend/` es otra API parcial y no se inicia con los comandos principales. La integración corregida todavía debe validarse end-to-end con MongoDB.
+> **Estado de revisión (2026-10-16):** el flujo predeterminado usa `server.ts`, Express, Vite y las rutas de `server/`. `backend/` es otra API parcial y no se inicia con los comandos principales.
+>
+> **Actualización post-P0 (2026-10-16):** se corrigieron el arranque en producción (Express 5), la autorización/ownership por rol, el `PUT` de citas, RN-20/RN-25/RN-29, el correlativo y la concurrencia de pagos, la suite de pruebas y la UI de cierre de caja. Verificado: `npm test` 22/22, E2E de bloqueantes 43/43, `npm run lint`/`build` OK y `NODE_ENV=production` arranca. Detalle en [`docs/CORRECCIONES_P0_2026-10-16.md`](docs/CORRECCIONES_P0_2026-10-16.md).
 
 ---
 
@@ -34,7 +36,7 @@
 - El login usa el contrato del backend integrado, restaura sesión con `/api/auth/me` y no asigna un rol ficticio.
 - En **Programar Cita** se puede seleccionar un paciente existente o registrar uno nuevo; para menores, el formulario pide y asocia los datos requeridos del responsable antes de guardar.
 - Si al consultar disponibilidad aparece `Cita no encontrada`, reinicia el backend con `npm run dev` para que cargue la ruta `/api/citas/disponibilidad`. Si ejecutas Docker, reconstruye el servicio de la aplicación.
-- Ambos archivos Compose apuntan a la aplicación integrada. Mongo no tiene autenticación. El build de la imagen aún no se valida: `npm ci` dentro de Docker falla en este entorno; el build local pasa.
+- Ambos archivos Compose apuntan a la aplicación integrada. Mongo no tiene autenticación. El arranque de producción se verificó con `NODE_ENV=production`; el build de la imagen Docker no se pudo validar en este entorno porque Docker no estaba disponible. El build local pasa.
 
 ---
 
@@ -87,7 +89,7 @@ La aplicación estará disponible en `http://localhost:3000`. El servidor requie
 ```bash
 npm test
 ```
-La cobertura de reglas sigue pendiente de validación end-to-end con MongoDB.
+La suite cubre reglas de citas, pagos, caja, autorización financiera y correlativos. Pasa completa (`22/22`); la verificación end-to-end con MongoDB se documenta en `docs/CORRECCIONES_P0_2026-10-16.md`.
 
 ---
 
@@ -105,7 +107,7 @@ docker compose logs -f
 docker compose down
 ```
 
-El Compose está configurado para levantar MongoDB y la aplicación integrada. En esta revisión, `npm ci` dentro del build de Docker falla con `Exit handler never called!`, así que no se confirmó el arranque por Compose. El build local de frontend y backend sí pasa. Mongo no usa autenticación; esta configuración es para desarrollo/demo local.
+El Compose está configurado para levantar MongoDB y la aplicación integrada. El arranque de producción con `NODE_ENV=production` y `dist/` fue verificado; el build de la imagen Docker no se pudo validar en este entorno porque Docker no estaba disponible. El build local de frontend y backend sí pasa. Mongo no usa autenticación; esta configuración es para desarrollo/demo local.
 
 ---
 

@@ -6,11 +6,13 @@ import { useAppStore } from '../../stores/appStore';
 const store = useAppStore();
 const router = useRouter();
 
-const todayStr = '2026-10-10';
+const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Guatemala' });
+const canSeeFinance = computed(() => store.currentUser?.role === 'ADMIN' || store.currentUser?.role === 'RECEPCION');
+const canManageClinical = computed(() => store.currentUser?.role === 'ADMIN' || store.currentUser?.role === 'RECEPCION');
 
 const todayAppointments = computed(() => {
   return store.appointments.filter((a) => {
-    if (a.fecha !== todayStr && a.fecha !== new Date().toISOString().slice(0, 10)) return false;
+    if (a.fecha !== todayStr) return false;
     const venue = (a.sede || '').toLowerCase();
     if (store.selectedSite === 'todas') return true;
     if (store.selectedSite === 'z10') return venue.includes('10') || venue.includes('sixtino');
@@ -26,8 +28,9 @@ const pendingToday = computed(() => todayAppointments.value.filter((a) => a.esta
 const pendingRequests = computed(() => store.requests.filter((r) => r.estado === 'PENDIENTE'));
 
 const todayIncomeQ = computed(() => {
+  // RN-19: los pagos anulados no cuentan como ingreso.
   return store.payments
-    .filter((p) => p.fecha.startsWith(todayStr) || p.fecha.startsWith(new Date().toISOString().slice(0, 10)))
+    .filter((p: any) => p.estado !== 'ANULADO' && p.fecha.startsWith(todayStr))
     .reduce((sum, p) => sum + p.montoQ, 0);
 });
 
@@ -62,7 +65,7 @@ const goToPatientFile = (patientId: string) => {
       </div>
 
       <!-- Quick action buttons -->
-      <div class="flex flex-wrap items-center gap-3">
+      <div v-if="canManageClinical" class="flex flex-wrap items-center gap-3">
         <router-link
           to="/admin/citas"
           class="px-4 py-2.5 bg-[#a33d23] hover:bg-[#83260e] text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
@@ -119,7 +122,7 @@ const goToPatientFile = (patientId: string) => {
       </div>
 
       <!-- Card 2: Solicitudes Web -->
-      <div class="bg-white p-6 rounded-2xl border border-[#e7e2d9] shadow-xs flex flex-col justify-between">
+      <div v-if="canManageClinical" class="bg-white p-6 rounded-2xl border border-[#e7e2d9] shadow-xs flex flex-col justify-between">
         <div class="flex items-start justify-between">
           <div>
             <span class="text-[11px] font-bold uppercase tracking-wider text-[#6d7a77]">
@@ -147,7 +150,7 @@ const goToPatientFile = (patientId: string) => {
       </div>
 
       <!-- Card 3: Recaudación Diaria -->
-      <div class="bg-white p-6 rounded-2xl border border-[#e7e2d9] shadow-xs flex flex-col justify-between">
+      <div v-if="canSeeFinance" class="bg-white p-6 rounded-2xl border border-[#e7e2d9] shadow-xs flex flex-col justify-between">
         <div class="flex items-start justify-between">
           <div>
             <span class="text-[11px] font-bold uppercase tracking-wider text-[#6d7a77]">

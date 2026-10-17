@@ -6,6 +6,9 @@ export const cashRouter = Router();
 
 cashRouter.use(authenticateToken);
 
+// RF-02/RF-11: el módulo financiero no está disponible para PROFESIONAL.
+cashRouter.use(requireRole(['ADMIN', 'RECEPCION']));
+
 // POST /api/cajas/abrir (RF-11, RN-22)
 cashRouter.post('/abrir', requireRole(['ADMIN', 'RECEPCION']), async (req: AuthRequest, res: Response) => {
   try {
@@ -30,15 +33,8 @@ cashRouter.post('/abrir', requireRole(['ADMIN', 'RECEPCION']), async (req: AuthR
 
 // GET /api/cajas/actual (Gets active open register for the current user)
 cashRouter.get('/actual', (req: AuthRequest, res: Response) => {
-  let caja = Repository.getUserOpenCashRegister(req.user!.id);
-
-  // If user is ADMIN and has no personal open box, check if there's any active open box
-  if (!caja && req.user!.rol === 'ADMIN') {
-    const anyOpen = Repository.getCashRegisters({ estado: 'ABIERTA' });
-    if (anyOpen.length > 0) {
-      caja = anyOpen[0];
-    }
-  }
+  // RN-20: la caja "actual" es siempre la del usuario autenticado, incluso para ADMIN.
+  const caja = Repository.getUserOpenCashRegister(req.user!.id);
 
   if (!caja) {
     return res.status(200).json({
@@ -78,9 +74,17 @@ cashRouter.get('/', (req: AuthRequest, res: Response) => {
 });
 
 // GET /api/cajas/:id
-cashRouter.get('/:id', (req, res: Response) => {
+cashRouter.get('/:id', (req: AuthRequest, res: Response) => {
   const caja = Repository.getCashRegisterById(String(req.params.id));
   if (!caja) return res.status(404).json({ success: false, message: 'Caja no encontrada' });
+
+  // RF-11: la recepcionista solo consulta sus propias cajas.
+  if (req.user?.rol === 'RECEPCION' && caja.usuarioId !== req.user.id) {
+    return res.status(403).json({
+      success: false,
+      message: 'RF-11: La recepcionista solo puede consultar sus propias cajas.',
+    });
+  }
 
   // Recalculate totals
   const refreshed = Repository.recalculateCashRegister(caja.id);
@@ -88,9 +92,17 @@ cashRouter.get('/:id', (req, res: Response) => {
 });
 
 // GET /api/cajas/:id/movimientos
-cashRouter.get('/:id/movimientos', (req, res: Response) => {
+cashRouter.get('/:id/movimientos', (req: AuthRequest, res: Response) => {
   const caja = Repository.getCashRegisterById(String(req.params.id));
   if (!caja) return res.status(404).json({ success: false, message: 'Caja no encontrada' });
+
+  if (req.user?.rol === 'RECEPCION' && caja.usuarioId !== req.user.id) {
+    return res.status(403).json({
+      success: false,
+      message: 'RF-11: La recepcionista solo puede consultar los movimientos de sus propias cajas.',
+    });
+  }
+
   return res.status(200).json({ success: true, count: caja.movimientos.length, data: caja.movimientos });
 });
 

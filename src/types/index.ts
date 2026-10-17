@@ -94,6 +94,8 @@ export interface Payment {
   concepto: string;
   notas?: string;
   atendidoPor: string;
+  estado?: 'REGISTRADO' | 'ANULADO';
+  motivoAnulacion?: string;
 }
 
 export interface CashMovement {
@@ -108,13 +110,26 @@ export interface CashMovement {
 
 export interface DailyCashRegister {
   id: string;
+  usuarioId?: string;
   fecha: string; // YYYY-MM-DD
+  fechaApertura?: string;
   estado: 'ABIERTA' | 'CERRADA';
   montoInicialQ: number;
   montoFinalQ?: number;
   usuarioNombre: string;
   horaApertura: string;
+  totalEfectivoQ?: number;
+  totalTransferenciasQ?: number;
+  totalTarjetaQ?: number;
+  totalIngresosQ?: number;
+  efectivoEsperadoQ?: number;
+  efectivoContadoQ?: number;
+  diferenciaQ?: number;
+  fechaCierre?: string;
   horaCierre?: string;
+  observacionesCierre?: string;
+  usuarioCierreId?: string;
+  cerradoPor?: string;
   movimientos: CashMovement[];
 }
 

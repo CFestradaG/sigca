@@ -178,6 +178,18 @@ const filteredAppointments = computed(() => {
     });
 });
 
+const canManageAppointments = computed(() => store.currentUser?.role === 'ADMIN' || store.currentUser?.role === 'RECEPCION');
+const actionError = ref('');
+
+const changeStatus = async (apt: Appointment, status: Appointment['estado']) => {
+  actionError.value = '';
+  try {
+    await store.updateAppointmentStatus(apt.id, status);
+  } catch (err: any) {
+    actionError.value = err?.message || 'No se pudo actualizar el estado de la cita.';
+  }
+};
+
 const goToPatient = (patientId: string) => {
   store.setSelectedPatientId(patientId);
   router.push('/admin/pacientes');
@@ -207,6 +219,7 @@ const goToPatient = (patientId: string) => {
         </router-link>
 
         <button
+          v-if="canManageAppointments"
           @click="handleOpenNew"
           class="px-4 py-2.5 bg-[#a33d23] hover:bg-[#83260e] text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-xs cursor-pointer"
         >
@@ -264,6 +277,10 @@ const goToPatient = (patientId: string) => {
           </button>
         </div>
       </div>
+    </div>
+
+    <div v-if="actionError" role="alert" class="p-3 rounded-xl bg-[#ffdad2] text-[#731a04] text-xs font-semibold">
+      {{ actionError }}
     </div>
 
     <!-- Appointments List Table -->
@@ -338,8 +355,8 @@ const goToPatient = (patientId: string) => {
 
               <td class="py-3.5 px-4 text-right space-x-1 whitespace-nowrap">
                 <button
-                  v-if="apt.estado === 'PENDIENTE'"
-                  @click="store.updateAppointmentStatus(apt.id, 'CONFIRMADA')"
+                  v-if="canManageAppointments && apt.estado === 'PENDIENTE'"
+                  @click="changeStatus(apt, 'CONFIRMADA')"
                   title="Confirmar cita"
                   class="px-2 py-1 bg-[#00685d] text-white rounded-lg text-[11px] font-bold cursor-pointer"
                 >
@@ -348,14 +365,14 @@ const goToPatient = (patientId: string) => {
 
                 <button
                   v-if="apt.estado === 'CONFIRMADA'"
-                  @click="store.updateAppointmentStatus(apt.id, 'COMPLETADA')"
+                  @click="changeStatus(apt, 'COMPLETADA')"
                   title="Marcar completada / atendida"
                   class="px-2 py-1 bg-[#00685d] text-white rounded-lg text-[11px] font-bold cursor-pointer"
                 >
                   Completar
                 </button>
 
-                <template v-if="apt.estado !== 'COMPLETADA' && apt.estado !== 'CANCELADA'">
+                <template v-if="canManageAppointments && apt.estado !== 'COMPLETADA' && apt.estado !== 'CANCELADA'">
                   <button
                     @click="reschedulingError = ''; reschedulingApt = apt; rescheduleData = { fecha: apt.fecha, horaInicio: apt.horaInicio, horaFin: apt.horaFin }"
                     title="Reprogramar horario o fecha"
@@ -365,7 +382,7 @@ const goToPatient = (patientId: string) => {
                   </button>
 
                   <button
-                    @click="store.updateAppointmentStatus(apt.id, 'CANCELADA')"
+                    @click="changeStatus(apt, 'CANCELADA')"
                     title="Cancelar cita"
                     class="px-2 py-1 bg-[#ffdad6] hover:bg-[#ba1a1a] hover:text-white text-[#ba1a1a] rounded-lg text-[11px] font-bold cursor-pointer"
                   >

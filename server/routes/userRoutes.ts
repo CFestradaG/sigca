@@ -5,6 +5,20 @@ import { authenticateToken, requireRole } from '../middleware/auth';
 
 export const userRouter = Router();
 
+// Directorio mínimo para que cualquier rol autenticado pueda mostrar nombres de
+// profesionales en agendas/filtros. No expone correo, teléfono ni hashes.
+userRouter.get('/directorio', authenticateToken, (_req, res: Response) => {
+  const data = Repository.getUsers()
+    .filter((user: any) => user.activo)
+    .map((user: any) => ({
+      id: user.id,
+      nombre: user.nombre,
+      rol: user.rol,
+      especialidad: user.especialidad,
+    }));
+  return res.status(200).json({ success: true, count: data.length, data });
+});
+
 // Require ADMIN role for user management (RF-13, RN-10)
 userRouter.use(authenticateToken, requireRole(['ADMIN']));
 

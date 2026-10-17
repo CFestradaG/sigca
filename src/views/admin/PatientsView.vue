@@ -13,6 +13,7 @@ const showAddModal = ref(false);
 const editingPatient = ref<Patient | null>(null);
 const isSaving = ref(false);
 const formError = ref('');
+const canManagePatients = computed(() => store.currentUser?.role === 'ADMIN' || store.currentUser?.role === 'RECEPCION');
 
 const formData = ref({
   nombres: '',
@@ -127,6 +128,7 @@ const filteredPatients = computed(() => {
       </div>
 
       <button
+        v-if="canManagePatients"
         @click="handleOpenAdd"
         class="px-4 py-2.5 bg-[#00685d] hover:bg-[#008376] text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-xs transition-colors cursor-pointer self-start sm:self-auto"
       >
@@ -267,6 +269,7 @@ const filteredPatients = computed(() => {
                 </button>
 
                 <button
+                  v-if="canManagePatients"
                   @click="handleOpenEdit(patient)"
                   title="Editar información"
                   class="p-1.5 text-[#3d4947] hover:bg-[#ece8df] rounded-lg cursor-pointer"
@@ -275,6 +278,7 @@ const filteredPatients = computed(() => {
                 </button>
 
                 <button
+                  v-if="canManagePatients"
                   @click="store.togglePatientStatus(patient.id)"
                   :title="patient.estado === 'ACTIVO' ? 'Desactivar paciente (Baja lógica)' : 'Reactivar paciente'"
                   class="p-1.5 rounded-lg cursor-pointer"

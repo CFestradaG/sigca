@@ -12,6 +12,8 @@ const searchTerm = ref('');
 const showAddPaymentModal = ref(false);
 const paymentError = ref('');
 const isSavingPayment = ref(false);
+const annulError = ref('');
+const annulSuccess = ref('');
 
 const formData = ref({
   pacienteId: store.patients[0]?.id || '',
@@ -93,8 +95,24 @@ const filteredPayments = computed(() => {
 });
 
 const totalCollectedAll = computed(() => {
-  return store.payments.reduce((sum, p) => sum + p.montoQ, 0);
+  // RN-19: los comprobantes anulados no forman parte de la recaudación.
+  return store.payments
+    .filter((p: any) => p.estado !== 'ANULADO')
+    .reduce((sum, p) => sum + p.montoQ, 0);
 });
+
+const handleAnnul = async (payment: any) => {
+  annulError.value = '';
+  annulSuccess.value = '';
+  const motivo = window.prompt('Motivo de la anulación (mínimo 5 caracteres):');
+  if (!motivo) return;
+  try {
+    await store.annulPayment(payment.id, motivo.trim());
+    annulSuccess.value = `Comprobante ${payment.numeroComprobante} anulado correctamente.`;
+  } catch (err: any) {
+    annulError.value = err?.message || 'No se pudo anular el pago.';
+  }
+};
 
 const totalPendingBalanceAll = computed(() => {
   return store.patients.reduce((sum, p) => sum + store.getPatientBalance(p.id).balance, 0);
@@ -126,6 +144,13 @@ const goToPatient = (patientId: string) => {
         <span class="material-symbols-outlined text-base">payments</span>
         <span>Registrar Nuevo Pago (Q)</span>
       </button>
+    </div>
+
+    <div v-if="annulSuccess" role="status" class="p-3 rounded-xl bg-[#e0f5ee] text-[#00685d] text-xs font-semibold">
+      {{ annulSuccess }}
+    </div>
+    <div v-if="annulError" role="alert" class="p-3 rounded-xl bg-[#ffdad2] text-[#731a04] text-xs">
+      {{ annulError }}
     </div>
 
     <!-- Summary Cards -->
@@ -224,9 +249,13 @@ const goToPatient = (patientId: string) => {
               </td>
 
               <td class="py-3.5 px-4">
-                <span class="font-extrabold text-[#00685d] text-sm">
+                <span class="font-extrabold text-sm" :class="(p as any).estado === 'ANULADO' ? 'text-[#6d7a77] line-through' : 'text-[#00685d]'">
                   Q {{ p.montoQ.toFixed(2) }}
                 </span>
+                <span
+                  v-if="(p as any).estado === 'ANULADO'"
+                  class="block text-[10px] font-bold text-[#ba1a1a]"
+                >ANULADO</span>
               </td>
 
               <td class="py-3.5 px-4 text-[#3d4947]">
@@ -234,13 +263,24 @@ const goToPatient = (patientId: string) => {
               </td>
 
               <td class="py-3.5 px-4 text-right">
-                <button
-                  @click="store.setSelectedPaymentForPrint(p)"
-                  class="px-2.5 py-1.5 bg-white hover:bg-[#ece8df] border border-[#bcc9c6] text-[#00685d] rounded-lg text-xs font-bold flex items-center gap-1 ml-auto cursor-pointer"
-                >
-                  <span class="material-symbols-outlined text-sm">print</span>
-                  <span>Imprimir</span>
-                </button>
+                <div class="flex items-center justify-end gap-1.5">
+                  <button
+                    v-if="(p as any).estado !== 'ANULADO'"
+                    @click="handleAnnul(p)"
+                    class="px-2.5 py-1.5 bg-[#ffdad6] hover:bg-[#ba1a1a] hover:text-white text-[#ba1a1a] rounded-lg text-xs font-bold flex items-center gap-1 cursor-pointer"
+                    title="Anular pago con motivo justificado"
+                  >
+                    <span class="material-symbols-outlined text-sm">block</span>
+                    <span>Anular</span>
+                  </button>
+                  <button
+                    @click="store.setSelectedPaymentForPrint(p)"
+                    class="px-2.5 py-1.5 bg-white hover:bg-[#ece8df] border border-[#bcc9c6] text-[#00685d] rounded-lg text-xs font-bold flex items-center gap-1 cursor-pointer"
+                  >
+                    <span class="material-symbols-outlined text-sm">print</span>
+                    <span>Imprimir</span>
+                  </button>
+                </div>
               </td>
             </tr>
           </tbody>

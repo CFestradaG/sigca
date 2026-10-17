@@ -6,14 +6,19 @@ export const paymentRouter = Router();
 
 paymentRouter.use(authenticateToken);
 
+// RF-02/RF-10: los datos financieros son solo para ADMIN y RECEPCIÓN.
+paymentRouter.use(requireRole(['ADMIN', 'RECEPCION']));
+
 // GET /api/pagos
 paymentRouter.get('/', (req, res: Response) => {
-  const { pacienteId, citaId, cajaId, fecha } = req.query;
+  const { pacienteId, citaId, cajaId, fecha, metodoPago, estado } = req.query;
   const list = Repository.getPayments({
     pacienteId: pacienteId as string,
     citaId: citaId as string,
     cajaId: cajaId as string,
     fecha: fecha as string,
+    metodoPago: metodoPago as string,
+    estado: estado as string,
   });
   return res.status(200).json({ success: true, count: list.length, data: list });
 });

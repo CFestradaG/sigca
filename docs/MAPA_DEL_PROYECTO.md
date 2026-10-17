@@ -3,6 +3,8 @@
 **Revisado:** 2026-10-16
 **Estado:** se usa el backend integrado `server.ts` como entrada principal. El API alterno de `backend/` permanece parcial y separado. La integración corregida aún necesita una ejecución contra MongoDB para considerarse verificada end-to-end. El build Compose falló en `npm ci` dentro de Docker (`Exit handler never called!`); el build local sí pasa.
 
+> **Actualización post-P0 (2026-10-16):** se corrigieron el arranque con `NODE_ENV=production`, las brechas de autorización/ownership, el `PUT` de citas, RN-20/RN-25/RN-29, el correlativo y la concurrencia de pagos, la suite de pruebas y la UI de cierre de caja. Verificado con MongoDB real/efímero: `npm test` 22/22, E2E de bloqueantes 43/43 y producción arranca. Detalle en `docs/CORRECCIONES_P0_2026-10-16.md`.
+
 Este documento distingue la consigna académica (`Proyecto_-Sistema-Integral-de-Gestion-de-Citas-y.md`) del estado observado en el código. La consigna define el alcance esperado; este mapa ubica la implementación actual.
 
 ## Arquitectura y flujo

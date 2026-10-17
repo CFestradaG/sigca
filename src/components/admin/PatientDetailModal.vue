@@ -26,6 +26,17 @@ const patientGuardians = computed(() => patient.value ? store.getPatientGuardian
 const patientAppointments = computed(() => patient.value ? store.getPatientAppointments(patient.value.id) : []);
 const patientPayments = computed(() => patient.value ? store.getPatientPayments(patient.value.id) : []);
 const balance = computed(() => patient.value ? store.getPatientBalance(patient.value.id) : { totalCharged: 0, totalPaid: 0, balance: 0 });
+const canSeeFinance = computed(() => store.currentUser?.role === 'ADMIN' || store.currentUser?.role === 'RECEPCION');
+const canManagePatient = computed(() => store.currentUser?.role === 'ADMIN' || store.currentUser?.role === 'RECEPCION');
+const visibleTabs = computed(() => [
+  { id: 'resumen', label: 'Resumen Clínico', icon: 'badge' },
+  { id: 'responsables', label: `Responsables (${patientGuardians.value.length})`, icon: 'supervised_user_circle' },
+  { id: 'citas', label: `Citas (${patientAppointments.value.length})`, icon: 'event_available' },
+  ...(canSeeFinance.value
+    ? [{ id: 'pagos', label: `Pagos & Saldo (Q ${balance.value.balance.toFixed(2)})`, icon: 'payments' }]
+    : []),
+  { id: 'materiales', label: `Materiales (${assignedMaterials.value.length})`, icon: 'category' },
+]);
 
 const assignedMaterials = computed(() => patient.value ? store.materials.filter((m) => m.assignedPatientIds.includes(patient.value!.id)) : []);
 const unassignedMaterials = computed(() => patient.value ? store.materials.filter((m) => !m.assignedPatientIds.includes(patient.value!.id)) : []);
@@ -98,6 +109,7 @@ const handleCreateAndLinkGuardian = () => {
 
         <div class="flex items-center gap-2 self-end sm:self-center">
           <button
+            v-if="canManagePatient"
             @click="emit('editPatient', patient)"
             class="px-3.5 py-2 bg-white hover:bg-[#ece8df] border border-[#bcc9c6] text-[#00685d] rounded-xl text-xs font-bold flex items-center gap-1 cursor-pointer"
           >
@@ -116,13 +128,7 @@ const handleCreateAndLinkGuardian = () => {
       <!-- Navigation Tabs -->
       <div class="px-6 bg-white border-b border-[#e7e2d9] flex gap-2 overflow-x-auto no-scrollbar">
         <button
-          v-for="tab in [
-            { id: 'resumen', label: 'Resumen Clínico', icon: 'badge' },
-            { id: 'responsables', label: `Responsables (${patientGuardians.length})`, icon: 'supervised_user_circle' },
-            { id: 'citas', label: `Citas (${patientAppointments.length})`, icon: 'event_available' },
-            { id: 'pagos', label: `Pagos & Saldo (Q ${balance.balance.toFixed(2)})`, icon: 'payments' },
-            { id: 'materiales', label: `Materiales (${assignedMaterials.length})`, icon: 'category' },
-          ]"
+          v-for="tab in visibleTabs"
           :key="tab.id"
           @click="activeTab = tab.id as any"
           class="py-3 px-3.5 text-xs font-bold border-b-2 flex items-center gap-1.5 transition-all cursor-pointer whitespace-nowrap"
@@ -138,7 +144,7 @@ const handleCreateAndLinkGuardian = () => {
         <!-- TAB 1: RESUMEN -->
         <div v-if="activeTab === 'resumen'" class="space-y-6">
           <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <div class="p-4 bg-[#f8f3ea] rounded-2xl border border-[#ece8df] space-y-1">
+            <div v-if="canSeeFinance" class="p-4 bg-[#f8f3ea] rounded-2xl border border-[#ece8df] space-y-1">
               <span class="text-[11px] text-[#6d7a77] uppercase font-bold">Saldo Pendiente</span>
               <p class="text-xl font-extrabold" :class="balance.balance > 0 ? 'text-[#a33d23]' : 'text-[#00685d]'">
                 Q {{ balance.balance.toFixed(2) }}
@@ -199,6 +205,7 @@ const handleCreateAndLinkGuardian = () => {
               </p>
             </div>
             <button
+              v-if="canManagePatient"
               @click="showAddGuardianModal = true"
               class="px-3.5 py-2 bg-[#00685d] hover:bg-[#008376] text-white rounded-xl text-xs font-bold flex items-center gap-1 cursor-pointer"
             >
@@ -260,6 +267,7 @@ const handleCreateAndLinkGuardian = () => {
               Historial de Citas y Sesiones Terapéuticas
             </h4>
             <router-link
+              v-if="canManagePatient"
               to="/admin/citas"
               @click="emit('close')"
               class="text-xs font-bold text-[#00685d] hover:underline flex items-center gap-1 cursor-pointer"

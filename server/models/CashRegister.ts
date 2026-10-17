@@ -30,6 +30,9 @@ export interface ICashRegister extends Document {
   fechaCierre?: string;
   horaCierre?: string;
   observacionesCierre?: string;
+  // RN-29: usuario responsable del cierre
+  usuarioCierreId?: string;
+  cerradoPor?: string;
   movimientos: ICashMovement[];
 }
 
@@ -64,6 +67,8 @@ const CashRegisterSchema = new Schema<ICashRegister>(
     fechaCierre: { type: String },
     horaCierre: { type: String },
     observacionesCierre: { type: String },
+    usuarioCierreId: { type: String },
+    cerradoPor: { type: String },
     movimientos: [CashMovementSchema],
   },
   { timestamps: true }

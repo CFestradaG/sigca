@@ -1,31 +1,35 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue';
+import { ref, computed, onMounted } from 'vue';
 import { useAppStore } from '../../stores/appStore';
-import { PaymentMethod } from '../../types';
 
 const store = useAppStore();
 
 const showOpenModal = ref(false);
-const showMovementModal = ref(false);
+const showCloseModal = ref(false);
 const initialCashInput = ref(500);
-
-const movementForm = ref({
-  tipo: 'INGRESO' as 'INGRESO' | 'EGRESO',
-  montoQ: 100,
-  concepto: '',
-  metodoPago: 'EFECTIVO' as PaymentMethod,
-  comprobanteRef: '',
-});
+const countedInput = ref(0);
+const openError = ref('');
+const closeError = ref('');
+const closeSuccess = ref('');
+const isOpening = ref(false);
+const isClosing = ref(false);
 
 const isOpened = computed(() => store.cashRegister.estado === 'ABIERTA');
 
 const totalCashIngresos = computed(() => {
+  const fromServer = store.cashRegister.totalEfectivoQ;
+  if (typeof fromServer === 'number') return fromServer;
   return store.cashRegister.movimientos
     .filter((m) => m.tipo === 'INGRESO' && m.metodoPago === 'EFECTIVO')
     .reduce((sum, m) => sum + m.montoQ, 0);
 });
 
 const totalOtherIngresos = computed(() => {
+  const transfers = store.cashRegister.totalTransferenciasQ;
+  const cards = store.cashRegister.totalTarjetaQ;
+  if (typeof transfers === 'number' || typeof cards === 'number') {
+    return (transfers || 0) + (cards || 0);
+  }
   return store.cashRegister.movimientos
     .filter((m) => m.tipo === 'INGRESO' && m.metodoPago !== 'EFECTIVO')
     .reduce((sum, m) => sum + m.montoQ, 0);
@@ -37,43 +41,61 @@ const totalCashEgresos = computed(() => {
     .reduce((sum, m) => sum + m.montoQ, 0);
 });
 
-const currentCashInDrawer = computed(() => {
-  return isOpened.value
-    ? store.cashRegister.montoInicialQ + totalCashIngresos.value - totalCashEgresos.value
-    : store.cashRegister.montoFinalQ || 0;
+// Efectivo esperado según el servidor (monto inicial + cobros válidos en efectivo).
+const expectedCash = computed(() => {
+  const fromServer = store.cashRegister.efectivoEsperadoQ;
+  if (typeof fromServer === 'number') return fromServer;
+  return store.cashRegister.montoInicialQ + totalCashIngresos.value;
 });
 
-const handleOpenRegister = () => {
-  store.openCashRegister(Number(initialCashInput.value));
-  showOpenModal.value = false;
+const currentCashInDrawer = computed(() => {
+  if (isOpened.value) return expectedCash.value;
+  return store.cashRegister.efectivoContadoQ ?? store.cashRegister.montoFinalQ ?? 0;
+});
+
+const hasArqueo = computed(() => typeof store.cashRegister.efectivoContadoQ === 'number');
+const difference = computed(() => store.cashRegister.diferenciaQ ?? 0);
+const previewDifference = computed(() => Number(countedInput.value || 0) - expectedCash.value);
+
+const openCloseModal = () => {
+  countedInput.value = Number(expectedCash.value.toFixed(2));
+  closeError.value = '';
+  closeSuccess.value = '';
+  showCloseModal.value = true;
 };
 
-const handleCloseRegister = () => {
-  if (window.confirm('¿Está seguro de que desea cerrar la caja diaria actual?')) {
-    store.closeCashRegister();
+const handleOpenRegister = async () => {
+  openError.value = '';
+  isOpening.value = true;
+  try {
+    await store.openCashRegister(Number(initialCashInput.value));
+    showOpenModal.value = false;
+    await store.fetchCashRegisters();
+  } catch (err: any) {
+    openError.value = err?.message || 'No se pudo abrir la caja.';
+  } finally {
+    isOpening.value = false;
   }
 };
 
-const handleAddMovement = () => {
-  if (!movementForm.value.concepto.trim() || movementForm.value.montoQ <= 0) return;
-
-  store.addCashMovement({
-    tipo: movementForm.value.tipo,
-    montoQ: Number(movementForm.value.montoQ),
-    concepto: movementForm.value.concepto.trim(),
-    metodoPago: movementForm.value.metodoPago,
-    comprobanteRef: movementForm.value.comprobanteRef.trim() || undefined,
-  });
-
-  movementForm.value = {
-    tipo: 'INGRESO',
-    montoQ: 100,
-    concepto: '',
-    metodoPago: 'EFECTIVO',
-    comprobanteRef: '',
-  };
-  showMovementModal.value = false;
+const handleCloseRegister = async () => {
+  closeError.value = '';
+  isClosing.value = true;
+  try {
+    await store.closeCashRegister(Number(countedInput.value));
+    showCloseModal.value = false;
+    closeSuccess.value = 'Caja cerrada correctamente. Arqueo registrado.';
+    await store.fetchCashRegisters();
+  } catch (err: any) {
+    closeError.value = err?.message || 'No se pudo cerrar la caja.';
+  } finally {
+    isClosing.value = false;
+  }
 };
+
+onMounted(async () => {
+  await store.fetchCashRegisters();
+});
 </script>
 
 <template>
@@ -100,15 +122,7 @@ const handleAddMovement = () => {
       <div class="flex gap-2">
         <template v-if="isOpened">
           <button
-            @click="showMovementModal = true"
-            class="px-4 py-2.5 bg-white hover:bg-[#ece8df] border border-[#bcc9c6] text-[#00685d] rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-xs cursor-pointer"
-          >
-            <span class="material-symbols-outlined text-base">add</span>
-            <span>Registrar Movimiento</span>
-          </button>
-
-          <button
-            @click="handleCloseRegister"
+            @click="openCloseModal"
             class="px-4 py-2.5 bg-[#a33d23] hover:bg-[#83260e] text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-xs cursor-pointer"
           >
             <span class="material-symbols-outlined text-base">lock</span>
@@ -123,6 +137,34 @@ const handleAddMovement = () => {
           <span class="material-symbols-outlined text-base">lock_open</span>
           <span>Abrir Nueva Caja Diaria</span>
         </button>
+      </div>
+    </div>
+
+    <div v-if="closeSuccess" role="status" class="p-3 rounded-xl bg-[#e0f5ee] text-[#00685d] text-xs font-semibold">
+      {{ closeSuccess }}
+    </div>
+    <div v-if="openError" role="alert" class="p-3 rounded-xl bg-[#ffdad2] text-[#731a04] text-xs">
+      {{ openError }}
+    </div>
+
+    <!-- Arqueo del cierre -->
+    <div v-if="hasArqueo" class="grid grid-cols-1 sm:grid-cols-3 gap-4 bg-white p-5 rounded-2xl border border-[#e7e2d9] shadow-xs">
+      <div>
+        <span class="text-[11px] font-bold text-[#6d7a77] uppercase">Efectivo Esperado</span>
+        <h3 class="text-xl font-extrabold text-[#1d1c16]">Q {{ expectedCash.toFixed(2) }}</h3>
+      </div>
+      <div>
+        <span class="text-[11px] font-bold text-[#6d7a77] uppercase">Efectivo Contado</span>
+        <h3 class="text-xl font-extrabold text-[#1d1c16]">Q {{ (store.cashRegister.efectivoContadoQ || 0).toFixed(2) }}</h3>
+      </div>
+      <div>
+        <span class="text-[11px] font-bold text-[#6d7a77] uppercase">Diferencia</span>
+        <h3 class="text-xl font-extrabold" :class="difference === 0 ? 'text-[#00685d]' : 'text-[#a33d23]'">
+          Q {{ difference.toFixed(2) }}
+        </h3>
+        <p class="text-[11px] text-[#6d7a77]">
+          Cerrada por: {{ store.cashRegister.cerradoPor || store.cashRegister.usuarioNombre }}
+        </p>
       </div>
     </div>
 
@@ -237,6 +279,55 @@ const handleAddMovement = () => {
       </div>
     </div>
 
+    <!-- Historial de cierres (RF-11.11) -->
+    <div class="bg-white rounded-2xl border border-[#e7e2d9] shadow-xs overflow-hidden">
+      <div class="p-4 bg-[#f8f3ea] border-b border-[#ece8df]">
+        <h3 class="font-heading font-bold text-sm text-[#1d1c16]">Cierres y cajas anteriores</h3>
+      </div>
+      <div class="overflow-x-auto">
+        <table class="w-full text-left text-xs">
+          <thead class="bg-[#fef9f0] border-b border-[#ece8df] text-[#6d7a77] uppercase font-bold text-[11px]">
+            <tr>
+              <th class="py-3 px-4">Fecha / Responsable</th>
+              <th class="py-3 px-4">Apertura</th>
+              <th class="py-3 px-4 text-right">Monto Inicial</th>
+              <th class="py-3 px-4 text-right">Ingresos</th>
+              <th class="py-3 px-4 text-right">Esperado</th>
+              <th class="py-3 px-4 text-right">Contado</th>
+              <th class="py-3 px-4 text-right">Diferencia</th>
+              <th class="py-3 px-4">Estado</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-[#ece8df]">
+            <tr v-if="store.allCashRegisters.length === 0">
+              <td colspan="8" class="py-6 text-center text-[#6d7a77]">No hay cajas registradas.</td>
+            </tr>
+            <tr v-for="caja in store.allCashRegisters" :key="caja.id" class="hover:bg-[#fef9f0]">
+              <td class="py-3 px-4">
+                <span class="font-bold text-[#1d1c16] block">{{ caja.fecha }}</span>
+                <span class="text-[11px] text-[#6d7a77]">{{ caja.cerradoPor || caja.usuarioNombre }}</span>
+              </td>
+              <td class="py-3 px-4 text-[#3d4947]">{{ caja.fechaApertura || caja.horaApertura }}</td>
+              <td class="py-3 px-4 text-right font-semibold">Q {{ (caja.montoInicialQ || 0).toFixed(2) }}</td>
+              <td class="py-3 px-4 text-right font-semibold">Q {{ (caja.totalIngresosQ || 0).toFixed(2) }}</td>
+              <td class="py-3 px-4 text-right font-semibold">Q {{ (caja.efectivoEsperadoQ || 0).toFixed(2) }}</td>
+              <td class="py-3 px-4 text-right font-semibold">
+                {{ typeof caja.efectivoContadoQ === 'number' ? `Q ${caja.efectivoContadoQ.toFixed(2)}` : '—' }}
+              </td>
+              <td class="py-3 px-4 text-right font-extrabold" :class="(caja.diferenciaQ || 0) === 0 ? 'text-[#00685d]' : 'text-[#a33d23]'">
+                {{ typeof caja.diferenciaQ === 'number' ? `Q ${caja.diferenciaQ.toFixed(2)}` : '—' }}
+              </td>
+              <td class="py-3 px-4">
+                <span class="px-2 py-0.5 rounded-full text-[10px] font-bold" :class="caja.estado === 'ABIERTA' ? 'bg-[#00685d]/10 text-[#00685d]' : 'bg-[#ece8df] text-[#3d4947]'">
+                  {{ caja.estado }}
+                </span>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
     <!-- Open Cash Register Modal -->
     <div v-if="showOpenModal" class="fixed inset-0 z-60 bg-black/50 flex items-center justify-center p-4">
       <div class="bg-white rounded-3xl max-w-md w-full p-6 sm:p-8 space-y-4 shadow-2xl border border-[#bcc9c6]">
@@ -246,6 +337,10 @@ const handleAddMovement = () => {
         <p class="text-xs text-[#3d4947]">
           Ingrese el fondo de caja inicial en efectivo (cambio y monedas) para iniciar la jornada.
         </p>
+
+        <div v-if="openError" role="alert" class="p-3 rounded-xl bg-[#ffdad2] text-[#731a04] text-xs">
+          {{ openError }}
+        </div>
 
         <form @submit.prevent="handleOpenRegister" class="space-y-4 text-xs">
           <div>
@@ -272,94 +367,67 @@ const handleAddMovement = () => {
             </button>
             <button
               type="submit"
-              class="px-5 py-2 bg-[#00685d] text-white rounded-xl text-xs font-bold shadow-xs"
+              :disabled="isOpening"
+              class="px-5 py-2 bg-[#00685d] text-white rounded-xl text-xs font-bold shadow-xs disabled:opacity-50"
             >
-              Confirmar Apertura
+              {{ isOpening ? 'Abriendo…' : 'Confirmar Apertura' }}
             </button>
           </div>
         </form>
       </div>
     </div>
 
-    <!-- Register Cash Movement Modal -->
-    <div v-if="showMovementModal" class="fixed inset-0 z-60 bg-black/50 flex items-center justify-center p-4">
+    <!-- Close Cash Register Modal (efectivo contado + arqueo) -->
+    <div v-if="showCloseModal" class="fixed inset-0 z-60 bg-black/50 flex items-center justify-center p-4">
       <div class="bg-white rounded-3xl max-w-md w-full p-6 sm:p-8 space-y-4 shadow-2xl border border-[#bcc9c6]">
         <h3 class="font-heading font-bold text-lg text-[#1d1c16]">
-          Registrar Movimiento en Caja
+          Cierre y Arqueo de Caja
         </h3>
+        <p class="text-xs text-[#3d4947]">
+          Efectivo esperado en gaveta: <strong class="text-[#00685d]">Q {{ expectedCash.toFixed(2) }}</strong>
+          (monto inicial + cobros válidos en efectivo).
+        </p>
 
-        <form @submit.prevent="handleAddMovement" class="space-y-4 text-xs">
-          <div class="grid grid-cols-2 gap-3">
-            <div>
-              <label class="block font-bold text-[#1d1c16] mb-1">Tipo de Movimiento *</label>
-              <select
-                v-model="movementForm.tipo"
-                class="w-full px-3 py-2 rounded-xl border border-[#bcc9c6] text-xs bg-white font-bold"
-              >
-                <option value="INGRESO">Ingreso (+)</option>
-                <option value="EGRESO">Egreso / Gasto (-)</option>
-              </select>
-            </div>
-
-            <div>
-              <label class="block font-bold text-[#1d1c16] mb-1">Monto en Quetzales *</label>
-              <input
-                type="number"
-                required
-                min="1"
-                step="0.01"
-                v-model="movementForm.montoQ"
-                class="w-full px-3 py-2 rounded-xl border border-[#bcc9c6] text-xs font-bold"
-              />
-            </div>
-          </div>
-
+        <form @submit.prevent="handleCloseRegister" class="space-y-4 text-xs">
           <div>
-            <label class="block font-bold text-[#1d1c16] mb-1">Método de Pago *</label>
-            <select
-              v-model="movementForm.metodoPago"
-              class="w-full px-3 py-2 rounded-xl border border-[#bcc9c6] text-xs bg-white"
-            >
-              <option value="EFECTIVO">Efectivo</option>
-              <option value="TARJETA">Tarjeta POS</option>
-              <option value="TRANSFERENCIA">Transferencia</option>
-            </select>
-          </div>
-
-          <div>
-            <label class="block font-bold text-[#1d1c16] mb-1">Concepto o Justificación *</label>
+            <label class="block font-bold text-[#1d1c16] mb-1">
+              Efectivo contado al cierre (Q) *
+            </label>
             <input
-              type="text"
+              type="number"
               required
-              placeholder="Ej. Compra de agua purificada para clínica"
-              v-model="movementForm.concepto"
-              class="w-full px-3 py-2 rounded-xl border border-[#bcc9c6] text-xs"
+              min="0"
+              step="0.01"
+              v-model="countedInput"
+              class="w-full px-3 py-2 rounded-xl border border-[#bcc9c6] text-base font-bold text-[#00685d]"
             />
           </div>
 
-          <div>
-            <label class="block font-bold text-[#1d1c16] mb-1">Comprobante o Factura Proveedor</label>
-            <input
-              type="text"
-              placeholder="Ej. FAC-10293"
-              v-model="movementForm.comprobanteRef"
-              class="w-full px-3 py-2 rounded-xl border border-[#bcc9c6] text-xs"
-            />
+          <div class="p-3 rounded-xl bg-[#f8f3ea] border border-[#ece8df] flex items-center justify-between">
+            <span class="font-bold text-[#3d4947]">Diferencia preliminar</span>
+            <span class="font-extrabold" :class="previewDifference === 0 ? 'text-[#00685d]' : 'text-[#a33d23]'">
+              Q {{ previewDifference.toFixed(2) }}
+            </span>
+          </div>
+
+          <div v-if="closeError" role="alert" class="p-3 rounded-xl bg-[#ffdad2] text-[#731a04]">
+            {{ closeError }}
           </div>
 
           <div class="pt-3 border-t border-[#ece8df] flex justify-end gap-2">
             <button
               type="button"
-              @click="showMovementModal = false"
+              @click="showCloseModal = false"
               class="px-4 py-2 bg-[#f2ede4] rounded-xl text-xs font-bold"
             >
               Cancelar
             </button>
             <button
               type="submit"
-              class="px-5 py-2 bg-[#00685d] text-white rounded-xl text-xs font-bold shadow-xs"
+              :disabled="isClosing"
+              class="px-5 py-2 bg-[#a33d23] text-white rounded-xl text-xs font-bold shadow-xs disabled:opacity-50"
             >
-              Guardar Movimiento
+              {{ isClosing ? 'Cerrando…' : 'Confirmar Cierre' }}
             </button>
           </div>
         </form>

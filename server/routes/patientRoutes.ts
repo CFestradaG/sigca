@@ -1,6 +1,6 @@
 import { Router, Response } from 'express';
 import { Repository } from '../data/repository';
-import { authenticateToken } from '../middleware/auth';
+import { authenticateToken, requireRole, AuthRequest } from '../middleware/auth';
 
 export const patientRouter = Router();
 
@@ -16,23 +16,49 @@ function validatePhoto(photoUrl: unknown) {
 patientRouter.use(authenticateToken);
 
 // GET /api/pacientes
-patientRouter.get('/', (req, res: Response) => {
+patientRouter.get('/', (req: AuthRequest, res: Response) => {
   const { search, estado } = req.query;
-  const patients = Repository.getPatients({
+  let patients = Repository.getPatients({
     search: search as string,
     estado: estado as string,
   });
+
+  // RF-02: el profesional solo consulta información básica de SUS pacientes.
+  if (req.user?.rol === 'PROFESIONAL') {
+    const assigned = Repository.getPatientIdsForProfessional(req.user.id);
+    patients = patients.filter((patient: any) => assigned.has(patient.id));
+  }
+
   return res.status(200).json({ success: true, count: patients.length, data: patients });
 });
 
 // GET /api/pacientes/:id
-patientRouter.get('/:id', (req, res: Response) => {
+patientRouter.get('/:id', (req: AuthRequest, res: Response) => {
   const patient = Repository.getPatientById(String(req.params.id));
   if (!patient) {
     return res.status(404).json({ success: false, message: 'Paciente no encontrado' });
   }
 
-  // Also include appointments and payments history (RF-03)
+  if (req.user?.rol === 'PROFESIONAL') {
+    const assigned = Repository.getPatientIdsForProfessional(req.user.id);
+    if (!assigned.has(patient.id)) {
+      return res.status(403).json({
+        success: false,
+        message: 'RF-02: El profesional solo puede consultar pacientes con citas asignadas a su agenda.',
+      });
+    }
+
+    // Información básica + sus propias citas; sin datos financieros.
+    return res.status(200).json({
+      success: true,
+      data: {
+        ...patient,
+        citas: Repository.getAppointments({ pacienteId: String(req.params.id), profesionalId: req.user.id }),
+      },
+    });
+  }
+
+  // ADMIN/RECEPCIÓN: expediente completo (RF-03).
   const citas = Repository.getAppointments({ pacienteId: String(req.params.id) });
   const pagos = Repository.getPayments({ pacienteId: String(req.params.id) });
 
@@ -47,7 +73,7 @@ patientRouter.get('/:id', (req, res: Response) => {
 });
 
 // POST /api/pacientes
-patientRouter.post('/', async (req, res: Response) => {
+patientRouter.post('/', requireRole(['ADMIN', 'RECEPCION']), async (req, res: Response) => {
   try {
     const { nombres, apellidos, fechaNacimiento, sexo, telefono, direccion, fechaInicio, observaciones, fotoUrl, responsableIds } = req.body;
 
@@ -83,7 +109,7 @@ patientRouter.post('/', async (req, res: Response) => {
 });
 
 // PUT /api/pacientes/:id
-patientRouter.put('/:id', async (req, res: Response) => {
+patientRouter.put('/:id', requireRole(['ADMIN', 'RECEPCION']), async (req, res: Response) => {
   try {
     const updated = await Repository.updatePatient(String(req.params.id), {
       ...req.body,
@@ -103,7 +129,7 @@ patientRouter.put('/:id', async (req, res: Response) => {
 });
 
 // PATCH /api/pacientes/:id/estado (RF-03: Desactivación mediante eliminación lógica)
-patientRouter.patch('/:id/estado', async (req, res: Response) => {
+patientRouter.patch('/:id/estado', requireRole(['ADMIN', 'RECEPCION']), async (req, res: Response) => {
   try {
     const { estado } = req.body;
     if (!['ACTIVO', 'INACTIVO'].includes(estado)) {
@@ -126,13 +152,16 @@ patientRouter.patch('/:id/estado', async (req, res: Response) => {
 });
 
 // GET /api/pacientes/:id/citas
-patientRouter.get('/:id/citas', (req, res: Response) => {
-  const citas = Repository.getAppointments({ pacienteId: String(req.params.id) });
+patientRouter.get('/:id/citas', (req: AuthRequest, res: Response) => {
+  const citas = Repository.getAppointments({
+    pacienteId: String(req.params.id),
+    profesionalId: req.user?.rol === 'PROFESIONAL' ? req.user.id : undefined,
+  });
   return res.status(200).json({ success: true, count: citas.length, data: citas });
 });
 
-// GET /api/pacientes/:id/pagos
-patientRouter.get('/:id/pagos', (req, res: Response) => {
+// GET /api/pacientes/:id/pagos (datos financieros: solo ADMIN/RECEPCIÓN)
+patientRouter.get('/:id/pagos', requireRole(['ADMIN', 'RECEPCION']), (req, res: Response) => {
   const pagos = Repository.getPayments({ pacienteId: String(req.params.id) });
   return res.status(200).json({ success: true, count: pagos.length, data: pagos });
 });
